@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+boto3
+langchain
+langchain-openai
+pinecone
+unstructured
+pypdf
+python-docx
+sentence-transformers
