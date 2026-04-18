@@ -2,48 +2,130 @@ name: Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+  pull_request:
+
+env:
+  AWS_REGION: ap-south-1
 
 jobs:
-  deploy:
+
+# =========================
+# 🧹 LINT + FORMAT
+# =========================
+  lint:
+    name: Lint & Format Check
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.11
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
-          cd backend
-          pip install -r requirements.txt -t .
+          pip install black flake8 isort
 
-      - name: Zip Lambda
+      - name: Run Black
+        run: black . --check
+
+      - name: Run isort
+        run: isort . --check-only
+
+      - name: Run Flake8
+        run: flake8 .
+
+# =========================
+# 🧪 TESTS
+# =========================
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
         run: |
-          cd backend
-          zip -r deployment.zip .
+          pip install -r requirements.txt
+          pip install pytest
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Run tests
+        run: pytest
 
+# =========================
+# 🏗 BUILD DOCKER IMAGE
+# =========================
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker
+        run: docker build -t rag-app .
+
+# =========================
+# 🚀 DEPLOY (ONLY MAIN)
+# =========================
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 🔐 AWS Credentials
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 🧱 Terraform Setup
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
-        run: |
-          cd terraform
-          terraform init
+        run: terraform init
+        working-directory: infra
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: infra
+
+      - name: Terraform Plan
+        run: terraform plan
+        working-directory: infra
 
       - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: infra
+
+      # 📦 Deploy Lambda Code
+      - name: Zip Lambda
         run: |
-          cd terraform
-          terraform apply -auto-approve
+          cd backend
+          zip -r lambda.zip .
+
+      - name: Update Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name rag-api \
+            --zip-file fileb://backend/lambda.zip
