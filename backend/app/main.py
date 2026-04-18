@@ -4,6 +4,7 @@ from .rag import ask_question, summarize_doc
 from .ingestion import process_upload
 from .metrics import get_metrics
 from .ingest import enqueue_file
+from .utils import save_to_s3
 
 app = FastAPI()
 

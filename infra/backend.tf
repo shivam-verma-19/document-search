@@ -1,8 +1,9 @@
 terraform {
   backend "s3" {
-    bucket         = "rag-terraform-state"
-    key            = "terraform.tfstate"
+    bucket         = "rag-terraform-state-bucket"
+    key            = "rag-platform/terraform.tfstate"
     region         = "ap-south-1"
-    dynamodb_table = "rag-lock-table"
+    dynamodb_table = "rag-terraform-lock"
+    encrypt        = true
   }
 }

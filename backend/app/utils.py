@@ -3,6 +3,20 @@ import boto3
 import json
 import os
 
+s3 = boto3.client("s3")
+BUCKET = os.environ.get("BUCKET_NAME", "rag-upload-bucket")
+
+def save_to_s3(file):
+    key = file.filename
+
+    s3.upload_fileobj(
+        file.file,
+        BUCKET,
+        key
+    )
+
+    return key
+
 def get_secrets():
     secret_name = os.environ["SECRET_NAME"]
 

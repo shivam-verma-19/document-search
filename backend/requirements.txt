@@ -8,3 +8,4 @@ unstructured
 pypdf
 python-docx
 sentence-transformers
+rank_bm25

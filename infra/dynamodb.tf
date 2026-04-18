@@ -1,6 +1,5 @@
-# dynamodb.tf
 resource "aws_dynamodb_table" "tf_lock" {
-  name         = "rag-lock-table"
+  name         = "rag-terraform-lock"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
 

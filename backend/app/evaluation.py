@@ -1,16 +1,11 @@
-def precision_at_k(retrieved, relevant):
-    return len(set(retrieved) & set(relevant)) / len(retrieved)
+import boto3
 
-def recall_at_k(retrieved, relevant):
-    return len(set(retrieved) & set(relevant)) / len(relevant)
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table("rag-eval")
 
-def faithfulness_score(question, answer, context, llm):
-    prompt = f"""
-    Check if the answer is supported by context.
-
-    Context: {context}
-    Answer: {answer}
-
-    Score from 0 to 1:
-    """
-    return llm.invoke(prompt)
+def store_eval(query, latency, precision):
+    table.put_item(Item={
+        "query": query,
+        "latency": latency,
+        "precision": precision
+    })
