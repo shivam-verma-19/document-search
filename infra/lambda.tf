@@ -12,16 +12,18 @@ resource "aws_lambda_function" "rag_lambda" {
   timeout     = 30
   memory_size = 1024
 
+  provisioned_concurrent_executions = 2
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.dlq.arn
+  }
+
   environment {
     variables = {
-      OPENAI_API_KEY   = "your_openai_key"
-      PINECONE_API_KEY = "your_pinecone_key"
+      QUEUE_URL   = aws_sqs_queue.rag_queue.id
       AWS_REGION       = var.aws_region
+      SECRET_NAME = aws_secretsmanager_secret.rag_secrets.name
     }
   }
-}
-environment {
-  variables = {
-    SECRET_NAME = aws_secretsmanager_secret.rag_secrets.name
-  }
+
 }

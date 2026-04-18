@@ -6,13 +6,20 @@ from .cache import get_cache, set_cache
 from .metrics import log_metrics
 from .utils import build_prompt
 from .utils import get_secrets
+from .utils import log_event
 from .monitoring import push_metric
+from .evaluation import precision_at_k
 
 # Cache hit
 push_metric("CacheHit", 1)
 
 # LLM fallback
 push_metric("LLMFallback", 1)
+
+push_metric("Latency", latency)
+
+precision = precision_at_k(retrieved_ids, ground_truth_ids)
+push_metric("Precision", precision)
 
 secrets = get_secrets()
 
@@ -23,6 +30,10 @@ embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4o-mini")
 
 vector_db = PineconeVectorStore(index_name="rag-index", embedding=embeddings)
+
+start = time.time()
+
+log_event("query", "success", int((time.time()-start)*1000))
 
 def ask_question(query):
     start = time.time()
