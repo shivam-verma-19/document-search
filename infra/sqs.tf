@@ -1,5 +1,10 @@
 resource "aws_sqs_queue" "rag_queue" {
   name = "rag-processing-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.dlq.arn
+    maxReceiveCount     = 5
+  })
 }
 
 resource "aws_sqs_queue" "dlq" {

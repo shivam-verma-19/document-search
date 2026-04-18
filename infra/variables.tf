@@ -13,6 +13,19 @@ variable "s3_bucket_name" {
   default     = "rag-upload-bucket"
 }
 
+variable "openai_api_key" {
+  sensitive = true
+}
+
+variable "pinecone_api_key" {
+  sensitive = true
+}
+
 variable "lambda_zip_path" {
   default = "../backend/deployment.zip"
+}
+
+variable "alert_email" {
+  description = "Email for CloudWatch alerts"
+  type        = string
 }

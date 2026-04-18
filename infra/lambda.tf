@@ -9,7 +9,7 @@ resource "aws_lambda_function" "rag_lambda" {
 
   role = aws_iam_role.lambda_role.arn
 
-  timeout     = 30
+  timeout     = 
   memory_size = 1024
 
   provisioned_concurrent_executions = 2
@@ -26,4 +26,9 @@ resource "aws_lambda_function" "rag_lambda" {
     }
   }
 
+}
+
+resource "aws_cloudwatch_log_group" "lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.rag_lambda.function_name}"
+  retention_in_days = 7
 }

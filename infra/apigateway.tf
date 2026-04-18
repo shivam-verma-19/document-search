@@ -43,7 +43,7 @@ resource "aws_apigatewayv2_authorizer" "cognito_auth" {
   }
 }
 
-resource "aws_apigatewayv2_route" "secured_route" {
+resource "aws_apigatewayv2_route" "route" {
   api_id    = aws_apigatewayv2_api.http_api.id
   route_key = "ANY /{proxy+}"
 

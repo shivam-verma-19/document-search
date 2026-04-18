@@ -1,25 +1,7 @@
-resource "aws_s3_bucket" "tf_state" {
-  bucket = "rag-terraform-state-bucket"
-}
+resource "aws_s3_bucket_public_access_block" "block" {
+  bucket = aws_s3_bucket.uploads.id
 
-resource "aws_s3_bucket_versioning" "versioning" {
-  bucket = aws_s3_bucket.tf_state.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "encryption" {
-  bucket = aws_s3_bucket.tf_state.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket" "uploads" {
-  bucket = "rag-upload-bucket"
+  block_public_acls   = true
+  block_public_policy = true
+  restrict_public_buckets = true
 }

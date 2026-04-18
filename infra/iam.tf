@@ -19,22 +19,60 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 }
 
 resource "aws_iam_policy" "lambda_policy" {
+  name = "${var.project_name}-lambda-policy"
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+
+      # 🔹 DynamoDB (cache)
       {
         Effect = "Allow"
-        Action = ["dynamodb:GetItem", "dynamodb:PutItem"]
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:Query"
+        ]
         Resource = "arn:aws:dynamodb:*:*:table/rag-*"
       },
+
+      # 🔹 S3 (uploads)
       {
         Effect = "Allow"
-        Action = ["s3:GetObject", "s3:PutObject"]
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
         Resource = "arn:aws:s3:::rag-upload-bucket/*"
+      },
+
+      {
+        Effect = "Allow"
+        Action = "s3:ListBucket"
+        Resource = "arn:aws:s3:::rag-upload-bucket"
+      },
+
+      # 🔹 SQS
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage",
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage"
+        ]
+        Resource = aws_sqs_queue.rag_queue.arn
       }
     ]
   })
 }
+
+
+resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = aws_iam_policy.lambda_policy.arn
+}
+
 
 resource "aws_iam_role_policy" "secrets_access" {
   name = "lambda-secrets-access"
