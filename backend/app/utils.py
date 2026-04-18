@@ -1,6 +1,17 @@
-# backend/app/utils.py
-
 import re
+import boto3
+import json
+import os
+
+def get_secrets():
+    secret_name = os.environ["SECRET_NAME"]
+
+    client = boto3.client("secretsmanager")
+
+    response = client.get_secret_value(SecretId=secret_name)
+
+    return json.loads(response["SecretString"])
+
 
 def normalize_text(text: str) -> str:
     """

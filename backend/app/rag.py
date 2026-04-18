@@ -5,6 +5,19 @@ from langchain_pinecone import PineconeVectorStore
 from .cache import get_cache, set_cache
 from .metrics import log_metrics
 from .utils import build_prompt
+from .utils import get_secrets
+from .monitoring import push_metric
+
+# Cache hit
+push_metric("CacheHit", 1)
+
+# LLM fallback
+push_metric("LLMFallback", 1)
+
+secrets = get_secrets()
+
+OPENAI_API_KEY = secrets["OPENAI_API_KEY"]
+PINECONE_API_KEY = secrets["PINECONE_API_KEY"]
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4o-mini")

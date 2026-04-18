@@ -12,3 +12,7 @@ variable "s3_bucket_name" {
   description = "S3 bucket for uploads"
   default     = "rag-upload-bucket"
 }
+
+variable "lambda_zip_path" {
+  default = "../backend/deployment.zip"
+}
