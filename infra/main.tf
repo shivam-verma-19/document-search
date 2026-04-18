@@ -4,7 +4,7 @@ provider "aws" {
 
 # S3 bucket for Terraform state
 resource "aws_s3_bucket" "tf_state" {
-  bucket = "rag-terraform-state-bucket"
+  bucket = "rag-pipeline-terraform-state-bucket"
 }
 
 # Enable versioning
