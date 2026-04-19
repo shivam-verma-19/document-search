@@ -7,8 +7,7 @@ from backend.app.utils import build_prompt, get_secrets, log_event
 from backend.app.cache import get_cache, set_cache
 from backend.app.metrics import log_metrics
 from backend.app.monitoring import push_metric
-from backend.app.evaluation_store import store_eval
-
+from backend.app.evaluation import store_eval
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_pinecone import PineconeVectorStore
 
@@ -121,10 +120,7 @@ def ask_question(query):
 
         latency = int((time.time() - start_time) * 1000)
 
-        final_answer = (
-            "There is no info in the context about this query. Switching to LLM\n"
-            + ans
-        )
+        final_answer = ("There is no info in the context about this query. Switching to LLM\n", ans)
 
         set_cache(query, final_answer)
 
