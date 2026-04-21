@@ -1,3 +1,4 @@
+import io
 import json
 import os
 
@@ -15,9 +16,13 @@ QUEUE_URL = os.environ["QUEUE_URL"]
 
 def process_upload(file, user):
     key = f"{user}/{file.filename}"
-    s3.upload_fileobj(file.file, "rag-upload-bucket", key)
 
-    elements = partition(file=file.file)
+    # Read file content once so we can reuse it for both S3 and partitioning.
+    file_bytes = file.file.read()
+
+    s3.upload_fileobj(io.BytesIO(file_bytes), "rag-upload-bucket", key)
+
+    elements = partition(file=io.BytesIO(file_bytes))
     text = "\n".join([el.text for el in elements if el.text])
 
     docs = [Document(page_content=text)]

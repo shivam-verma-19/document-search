@@ -136,8 +136,8 @@ def ask_question(query):
         latency = int((time.time() - start_time) * 1000)
 
         final_answer = (
-            "There is no info in the context about this query. Switching to LLM\n",
-            ans,
+            "There is no info in the context about this query. Switching to LLM.\n"
+            + (ans or "")
         )
 
         set_cache(query, final_answer)
