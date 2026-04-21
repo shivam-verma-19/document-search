@@ -11,3 +11,5 @@ sentence-transformers
 rank_bm25
 langchain-pinecone
 langchain-text-splitters
+pytest
+moto
