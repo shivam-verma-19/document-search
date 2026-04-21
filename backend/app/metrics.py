@@ -1,4 +1,7 @@
-import boto3, time, uuid
+import time
+import uuid
+
+import boto3
 
 table = boto3.resource("dynamodb").Table("rag-metrics")
 

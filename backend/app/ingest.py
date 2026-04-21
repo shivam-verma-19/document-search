@@ -1,11 +1,12 @@
-import boto3
-import json, os
+import json
+import os
 
-from unstructured.partition.auto import partition
-from langchain_openai import OpenAIEmbeddings
+import boto3
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from unstructured.partition.auto import partition
 
 s3 = boto3.client("s3")
 sqs = boto3.client("sqs")

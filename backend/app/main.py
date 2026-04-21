@@ -1,8 +1,9 @@
-from fastapi import FastAPI, UploadFile, Depends
+from fastapi import Depends, FastAPI, UploadFile
+
 from .auth import verify_token
-from .rag import ask_question, summarize_doc
-from .metrics import get_metrics
 from .ingest import enqueue_file
+from .metrics import get_metrics
+from .rag import ask_question, summarize_doc
 from .utils import save_to_s3
 
 app = FastAPI()

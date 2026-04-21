@@ -1,7 +1,8 @@
-import re
-import boto3
 import json
 import os
+import re
+
+import boto3
 
 s3 = boto3.client("s3")
 BUCKET = os.environ.get("BUCKET_NAME", "rag-pipeline-upload-bucket")

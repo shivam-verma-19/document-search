@@ -1,14 +1,14 @@
 import time
 import uuid
 
-from backend.app.reranker import rerank
-from backend.app.hybrid import BM25Retriever
-from backend.app.utils import build_prompt, get_secrets, log_event
 from backend.app.cache import get_cache, set_cache
+from backend.app.evaluation import store_eval
+from backend.app.hybrid import BM25Retriever
 from backend.app.metrics import log_metrics
 from backend.app.monitoring import push_metric
-from backend.app.evaluation import store_eval
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from backend.app.reranker import rerank
+from backend.app.utils import build_prompt, get_secrets, log_event
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 
 # =========================
