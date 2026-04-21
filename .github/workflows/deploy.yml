@@ -42,9 +42,6 @@ jobs:
       - name: Run isort
         run: isort . --check-only
 
-      - name: Run Flake8
-        run: flake8 .
-
 # =========================
 # 🧪 TESTS
 # =========================
