@@ -4,7 +4,7 @@ import json
 import os
 
 s3 = boto3.client("s3")
-BUCKET = os.environ.get("BUCKET_NAME", "rag-upload-bucket")
+BUCKET = os.environ.get("BUCKET_NAME", "rag-pipeline-upload-bucket")
 
 def save_to_s3(file):
     key = file.filename

@@ -9,3 +9,5 @@ pypdf
 python-docx
 sentence-transformers
 rank_bm25
+langchain-pinecone
+langchain-text-splitters
