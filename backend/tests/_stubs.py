@@ -38,6 +38,7 @@ def _stub_sentence_transformers():
         return
     st = types.ModuleType("sentence_transformers")
 
+
     class FakeCrossEncoder:
         def __init__(self, *a, **kw):
             pass
