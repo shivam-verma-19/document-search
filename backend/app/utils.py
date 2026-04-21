@@ -44,7 +44,13 @@ def clean_text(text: str) -> str:
 
 
 def log_event(event, status, latency):
-    print(json.dumps({"event": event, "status": status, "latency_ms": latency}))
+    print(json.dumps(
+        {
+            "event": event, 
+            "status": status, 
+            "latency_ms": latency
+        }
+    ))
 
 
 def build_prompt(context: str, query: str) -> str:

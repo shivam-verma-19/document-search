@@ -7,6 +7,7 @@ disable=
     W0613,  # unused-argument
     W0702,  # bare-except
     W0718   # broad-exception
+    W291    # trailing-whitespace
 
 [FORMAT]
 max-line-length=88

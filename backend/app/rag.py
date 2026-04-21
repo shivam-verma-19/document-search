@@ -43,7 +43,8 @@ def rewrite_query(query):
         # handle list case (rare but possible)
         if isinstance(response, list):
             text = " ".join(
-                item if isinstance(item, str) else str(item) for item in response
+                item if isinstance(item, str) 
+                else str(item) for item in response
             )
             return text.strip()
 
