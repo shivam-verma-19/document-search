@@ -11,7 +11,6 @@ class BM25Retriever:
         tokenized_query = query.split()
         scores = self.bm25.get_scores(tokenized_query)
 
-        ranked = sorted(zip(self.docs, scores), 
-                        key=lambda x: x[1], reverse=True)
+        ranked = sorted(zip(self.docs, scores), key=lambda x: x[1], reverse=True)
 
         return [doc for doc, _ in ranked[:k]]

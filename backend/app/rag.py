@@ -1,6 +1,9 @@
 import time
 import uuid
 
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+
 from backend.app.cache import get_cache, set_cache
 from backend.app.evaluation import store_eval
 from backend.app.hybrid import BM25Retriever
@@ -8,8 +11,6 @@ from backend.app.metrics import log_metrics
 from backend.app.monitoring import push_metric
 from backend.app.reranker import rerank
 from backend.app.utils import build_prompt, get_secrets, log_event
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
 
 # =========================
 # INIT (RUN ONCE)
@@ -43,8 +44,7 @@ def rewrite_query(query):
         # handle list case (rare but possible)
         if isinstance(response, list):
             text = " ".join(
-                item if isinstance(item, str) 
-                else str(item) for item in response
+                item if isinstance(item, str) else str(item) for item in response
             )
             return text.strip()
 
