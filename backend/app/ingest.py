@@ -7,10 +7,10 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_pinecone import PineconeVectorStore
 
-
 s3 = boto3.client("s3")
 sqs = boto3.client("sqs")
 QUEUE_URL = os.environ["QUEUE_URL"]
+
 
 def process_upload(file, user):
     key = f"{user}/{file.filename}"
@@ -29,8 +29,6 @@ def process_upload(file, user):
 
     return {"message": "Uploaded & processed"}
 
+
 def enqueue_file(file_name):
-    sqs.send_message(
-        QueueUrl=QUEUE_URL,
-        MessageBody=json.dumps({"file": file_name})
-    )
+    sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps({"file": file_name}))

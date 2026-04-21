@@ -6,16 +6,14 @@ import os
 s3 = boto3.client("s3")
 BUCKET = os.environ.get("BUCKET_NAME", "rag-pipeline-upload-bucket")
 
+
 def save_to_s3(file):
     key = file.filename
 
-    s3.upload_fileobj(
-        file.file,
-        BUCKET,
-        key
-    )
+    s3.upload_fileobj(file.file, BUCKET, key)
 
     return key
+
 
 def get_secrets():
     secret_name = os.environ["SECRET_NAME"]
@@ -43,12 +41,10 @@ def clean_text(text: str) -> str:
     text = re.sub(r"[^\w\s.,]", "", text)
     return text
 
+
 def log_event(event, status, latency):
-    print(json.dumps({
-        "event": event,
-        "status": status,
-        "latency_ms": latency
-    }))
+    print(json.dumps({"event": event, "status": status, "latency_ms": latency}))
+
 
 def build_prompt(context: str, query: str) -> str:
     """

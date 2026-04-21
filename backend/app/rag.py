@@ -11,7 +11,6 @@ from backend.app.evaluation import store_eval
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_pinecone import PineconeVectorStore
 
-
 # =========================
 # INIT (RUN ONCE)
 # =========================
@@ -20,10 +19,7 @@ secrets = get_secrets()
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4o-mini")
 
-vector_db = PineconeVectorStore(
-    index_name="rag-index",
-    embedding=embeddings
-)
+vector_db = PineconeVectorStore(index_name="rag-index", embedding=embeddings)
 
 # ⚠️ TEMP: replace later with proper ingestion source
 all_docs = vector_db.similarity_search(" ", k=200)
@@ -120,7 +116,10 @@ def ask_question(query):
 
         latency = int((time.time() - start_time) * 1000)
 
-        final_answer = ("There is no info in the context about this query. Switching to LLM\n", ans)
+        final_answer = (
+            "There is no info in the context about this query. Switching to LLM\n",
+            ans,
+        )
 
         set_cache(query, final_answer)
 

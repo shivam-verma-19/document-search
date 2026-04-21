@@ -7,9 +7,11 @@ from .utils import save_to_s3
 
 app = FastAPI()
 
+
 @app.get("/")
 def root():
     return {"status": "running"}
+
 
 @app.post("/upload")
 def upload(file: UploadFile):
@@ -21,13 +23,16 @@ def upload(file: UploadFile):
 
     return {"status": "queued"}
 
+
 @app.get("/ask")
 def ask(q: str, user=Depends(verify_token)):
     return {"answer": ask_question(q)}
 
+
 @app.get("/summary")
 def summary(doc_id: str, user=Depends(verify_token)):
     return {"summary": summarize_doc(doc_id)}
+
 
 @app.get("/metrics")
 def metrics(user=Depends(verify_token)):
