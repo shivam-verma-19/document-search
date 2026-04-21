@@ -5,14 +5,10 @@ class BM25Retriever:
     def __init__(self, documents):
         self.docs = documents
         self.corpus = [doc.page_content.lower().split() for doc in documents]
-        # BM25Okapi raises ZeroDivisionError on an empty corpus; guard here.
-        self.bm25 = BM25Okapi(self.corpus) if self.corpus else None
+        self.bm25 = BM25Okapi(self.corpus)
 
     def search(self, query, k=5):
-        if not self.docs or self.bm25 is None:
-            return []
-
-        tokenized_query = query.lower().split()
+        tokenized_query = query.split()
         scores = self.bm25.get_scores(tokenized_query)
 
         ranked = sorted(zip(self.docs, scores), key=lambda x: x[1], reverse=True)
