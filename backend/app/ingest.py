@@ -8,7 +8,7 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from unstructured.partition.auto import partition
 
-s3 = boto3.client("s3") # type: ignore
+s3 = boto3.client("s3")  # type: ignore
 sqs = boto3.client("sqs")
 QUEUE_URL = os.environ["QUEUE_URL"]
 

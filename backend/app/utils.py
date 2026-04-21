@@ -4,7 +4,7 @@ import re
 
 import boto3
 
-s3 = boto3.client("s3") # type: ignore
+s3 = boto3.client("s3")  # type: ignore
 BUCKET = os.environ.get("BUCKET_NAME", "rag-pipeline-upload-bucket")
 
 
@@ -19,7 +19,7 @@ def save_to_s3(file):
 def get_secrets():
     secret_name = os.environ["SECRET_NAME"]
 
-    client = boto3.client("secretsmanager") 
+    client = boto3.client("secretsmanager")
 
     response = client.get_secret_value(SecretId=secret_name)
 
