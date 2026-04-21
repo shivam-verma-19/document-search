@@ -35,8 +35,22 @@ def rewrite_query(query):
     {query}
     """
     try:
-        return llm.invoke(prompt).content.strip()
-    except:
+        response = llm.invoke(prompt).content
+
+        if isinstance(response, str):
+            return response.strip()
+
+        # handle list case (rare but possible)
+        if isinstance(response, list):
+            text = " ".join(
+                item if isinstance(item, str) else str(item)
+                for item in response
+            )
+            return text.strip()
+
+        return query
+
+    except Exception:
         return query
 
 
@@ -106,7 +120,12 @@ def ask_question(query):
         ans = None
         for _ in range(2):
             try:
-                ans = llm.invoke(query).content
+                response = llm.invoke(query).content
+
+                if isinstance(response, str):
+                    ans = response
+                else:
+                    ans = " ".join(str(x) for x in response)
                 break
             except Exception as e:
                 print(f"[{request_id}] Retry error: {e}")
