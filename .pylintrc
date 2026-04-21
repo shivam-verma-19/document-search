@@ -1,13 +1,5 @@
 [MESSAGES CONTROL]
-disable=
-    C0114,  # missing-module-docstring
-    C0115,  # missing-class-docstring
-    C0116,  # missing-function-docstring
-    R0903,  # too-few-public-methods
-    W0613,  # unused-argument
-    W0702,  # bare-except
-    W0718   # broad-exception
-    W291    # trailing-whitespace
+disable=C0114,C0115,C0116,R0903,W0613,W0702,W0718,W291
 
 [FORMAT]
 max-line-length=88
