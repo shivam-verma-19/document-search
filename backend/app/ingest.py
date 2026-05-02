@@ -1,8 +1,8 @@
 import json
 import os
+from io import BytesIO
 
 import boto3
-from io import BytesIO
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
