@@ -13,3 +13,4 @@ langchain-pinecone
 langchain-text-splitters
 pytest
 moto
+python-multipart

@@ -95,8 +95,6 @@ def _load_rag(
     import backend.app.rag as rag_mod
 
     importlib.reload(rag_mod)
-    # Clear lru_cache so the fresh reload is used
-    rag_mod._get_clients.cache_clear()
 
     # Inject test doubles via module globals (picked up by _clients())
     rag_mod.llm = _make_llm(llm_answer)

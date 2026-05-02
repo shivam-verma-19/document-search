@@ -72,7 +72,6 @@ def _load_rag(monkeypatch, llm_answer="answer"):
     import backend.app.rag as rag_mod
 
     importlib.reload(rag_mod)
-    rag_mod._get_clients.cache_clear()
     rag_mod.llm = llm
     rag_mod.vector_db = vdb
     rag_mod.bm25 = bm25

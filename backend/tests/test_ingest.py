@@ -61,7 +61,7 @@ def _create_sqs_queue():
     return sqs, resp["QueueUrl"]
 
 
-def _create_s3_bucket(name="rag-upload-bucket"):
+def _create_s3_bucket(name="rag-pipeline-upload-bucket"):
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket=name)
     return s3
@@ -140,7 +140,7 @@ class TestProcessUpload:
         s3 = _create_s3_bucket()
         mod = _reload_ingest(_fake_overrides())
         mod.process_upload(_FakeUpload("my.pdf", b"pdf-content"), "alice")
-        obj = s3.get_object(Bucket="rag-upload-bucket", Key="alice/my.pdf")
+        obj = s3.get_object(Bucket="rag-pipeline-upload-bucket", Key="alice/my.pdf")
         assert obj["Body"].read() == b"pdf-content"
 
     @mock_aws
