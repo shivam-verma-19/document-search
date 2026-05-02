@@ -22,7 +22,9 @@ from moto import mock_aws
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
-os.environ.setdefault("QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue")
+os.environ.setdefault(
+    "QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue"
+)
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
 
@@ -30,6 +32,7 @@ os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_doc(text: str = "hello world"):
     """Return a minimal LangChain-style Document stub."""
@@ -42,6 +45,7 @@ def _make_doc(text: str = "hello world"):
 # ---------------------------------------------------------------------------
 # AWS infrastructure fixtures (moto)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def aws_credentials():
@@ -104,6 +108,7 @@ def secretsmanager_secret(aws_credentials):
 # Lightweight document stub
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def sample_doc():
     return _make_doc("The quarterly revenue increased by 12% year over year.")
@@ -118,9 +123,11 @@ def sample_docs():
 # Upload file helper
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def upload_file():
     """Return a FastAPI-compatible UploadFile stub."""
+
     class FakeUploadFile:
         filename = "test.pdf"
         content_type = "application/pdf"

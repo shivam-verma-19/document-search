@@ -29,8 +29,10 @@ os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _FakeUpload:
     """Minimal UploadFile stand-in."""
+
     def __init__(self, filename="doc.pdf", content=b"bytes"):
         self.filename = filename
         self.file = io.BytesIO(content)
@@ -40,6 +42,7 @@ class _FakeUpload:
 # save_to_s3
 # ---------------------------------------------------------------------------
 
+
 class TestSaveToS3:
     @mock_aws
     def test_happy_path_returns_key(self):
@@ -47,6 +50,7 @@ class TestSaveToS3:
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
 
         from backend.app.utils import save_to_s3
+
         key = save_to_s3(_FakeUpload("report.pdf", b"pdf-data"))
 
         assert key == "report.pdf"
@@ -57,6 +61,7 @@ class TestSaveToS3:
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
 
         from backend.app.utils import save_to_s3
+
         save_to_s3(_FakeUpload("report.pdf", b"hello-world"))
 
         obj = s3.get_object(Bucket="rag-pipeline-upload-bucket", Key="report.pdf")
@@ -66,6 +71,7 @@ class TestSaveToS3:
     def test_missing_bucket_raises(self):
         """If the bucket doesn't exist, boto3 should raise ClientError."""
         import botocore
+
         from backend.app.utils import save_to_s3
 
         with pytest.raises(botocore.exceptions.ClientError):
@@ -77,6 +83,7 @@ class TestSaveToS3:
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
 
         from backend.app.utils import save_to_s3
+
         key = save_to_s3(_FakeUpload("empty.pdf", b""))
         assert key == "empty.pdf"
 
@@ -84,6 +91,7 @@ class TestSaveToS3:
 # ---------------------------------------------------------------------------
 # get_secrets
 # ---------------------------------------------------------------------------
+
 
 class TestGetSecrets:
     @mock_aws
@@ -95,12 +103,14 @@ class TestGetSecrets:
         )
 
         from backend.app.utils import get_secrets
+
         secrets = get_secrets()
         assert secrets["OPENAI_API_KEY"] == "sk-test"
 
     @mock_aws
     def test_missing_secret_raises(self):
         import botocore
+
         from backend.app.utils import get_secrets
 
         with pytest.raises(botocore.exceptions.ClientError):
@@ -111,25 +121,31 @@ class TestGetSecrets:
 # normalize_text
 # ---------------------------------------------------------------------------
 
+
 class TestNormalizeText:
     def test_lowercases(self):
         from backend.app.utils import normalize_text
+
         assert normalize_text("HELLO WORLD") == "hello world"
 
     def test_strips_leading_trailing_whitespace(self):
         from backend.app.utils import normalize_text
+
         assert normalize_text("  hello  ") == "hello"
 
     def test_collapses_internal_whitespace(self):
         from backend.app.utils import normalize_text
+
         assert normalize_text("hello   world") == "hello world"
 
     def test_empty_string(self):
         from backend.app.utils import normalize_text
+
         assert normalize_text("") == ""
 
     def test_newlines_collapsed(self):
         from backend.app.utils import normalize_text
+
         assert normalize_text("hello\n\nworld") == "hello world"
 
 
@@ -137,9 +153,11 @@ class TestNormalizeText:
 # clean_text
 # ---------------------------------------------------------------------------
 
+
 class TestCleanText:
     def test_removes_special_chars(self):
         from backend.app.utils import clean_text
+
         result = clean_text("hello! @world#")
         assert "@" not in result
         assert "#" not in result
@@ -147,14 +165,17 @@ class TestCleanText:
 
     def test_preserves_alphanumeric(self):
         from backend.app.utils import clean_text
+
         assert "hello" in clean_text("hello world")
 
     def test_preserves_periods(self):
         from backend.app.utils import clean_text
+
         assert "." in clean_text("end of sentence.")
 
     def test_empty_string(self):
         from backend.app.utils import clean_text
+
         assert clean_text("") == ""
 
 
@@ -162,9 +183,11 @@ class TestCleanText:
 # log_event
 # ---------------------------------------------------------------------------
 
+
 class TestLogEvent:
     def test_outputs_json_to_stdout(self, capsys):
         from backend.app.utils import log_event
+
         log_event("query", "success", 123)
         out = capsys.readouterr().out
         data = json.loads(out.strip())
@@ -174,6 +197,7 @@ class TestLogEvent:
 
     def test_all_fields_present(self, capsys):
         from backend.app.utils import log_event
+
         log_event("upload", "error", 0)
         out = capsys.readouterr().out
         data = json.loads(out.strip())
@@ -184,22 +208,27 @@ class TestLogEvent:
 # build_prompt
 # ---------------------------------------------------------------------------
 
+
 class TestBuildPrompt:
     def test_contains_context(self):
         from backend.app.utils import build_prompt
+
         prompt = build_prompt("some context", "what is X?")
         assert "some context" in prompt
 
     def test_contains_query(self):
         from backend.app.utils import build_prompt
+
         prompt = build_prompt("ctx", "what is X?")
         assert "what is X?" in prompt
 
     def test_contains_instruction(self):
         from backend.app.utils import build_prompt
+
         prompt = build_prompt("ctx", "q")
         assert "Answer ONLY using the context" in prompt
 
     def test_returns_string(self):
         from backend.app.utils import build_prompt
+
         assert isinstance(build_prompt("ctx", "q"), str)

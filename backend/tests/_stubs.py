@@ -1,13 +1,3 @@
-"""
-Shared sys.modules stubs for heavy optional dependencies.
-Import this module in any test file that transitively touches:
-  - unstructured  (document parsing)
-  - sentence_transformers  (CrossEncoder reranker)
-  - langchain_pinecone / langchain_openai  (vector store / LLM)
-
-Call install_all_stubs() BEFORE importing any backend.app.* module.
-"""
-
 import sys
 import types
 import unittest.mock as mock
@@ -26,11 +16,13 @@ def _stub_unstructured():
     pm = types.ModuleType("unstructured.partition")
     am = types.ModuleType("unstructured.partition.auto")
     am.partition = lambda **kw: [types.SimpleNamespace(text="extracted text")]
-    sys.modules.update({
-        "unstructured": pkg,
-        "unstructured.partition": pm,
-        "unstructured.partition.auto": am,
-    })
+    sys.modules.update(
+        {
+            "unstructured": pkg,
+            "unstructured.partition": pm,
+            "unstructured.partition.auto": am,
+        }
+    )
 
 
 def _stub_sentence_transformers():
@@ -38,10 +30,10 @@ def _stub_sentence_transformers():
         return
     st = types.ModuleType("sentence_transformers")
 
-
     class FakeCrossEncoder:
         def __init__(self, *a, **kw):
             pass
+
         def predict(self, pairs):
             # Return equal scores so order is stable
             return [0.5] * len(pairs)

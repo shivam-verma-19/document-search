@@ -35,26 +35,32 @@ def _make_table():
 # hash_query
 # ---------------------------------------------------------------------------
 
+
 class TestHashQuery:
     def test_deterministic(self):
         from backend.app.cache import hash_query
+
         assert hash_query("hello") == hash_query("hello")
 
     def test_different_inputs_different_hashes(self):
         from backend.app.cache import hash_query
+
         assert hash_query("hello") != hash_query("world")
 
     def test_returns_string(self):
         from backend.app.cache import hash_query
+
         assert isinstance(hash_query("test"), str)
 
     def test_hex_digest_length(self):
         from backend.app.cache import hash_query
+
         # SHA-256 produces 64 hex characters
         assert len(hash_query("anything")) == 64
 
     def test_empty_string_hashed(self):
         from backend.app.cache import hash_query
+
         result = hash_query("")
         assert isinstance(result, str) and len(result) == 64
 
@@ -63,17 +69,20 @@ class TestHashQuery:
 # get_cache / set_cache
 # ---------------------------------------------------------------------------
 
+
 class TestCacheOperations:
     @mock_aws
     def test_cache_miss_returns_none(self):
         _make_table()
         from backend.app.cache import get_cache
+
         assert get_cache("nonexistent query") is None
 
     @mock_aws
     def test_set_then_get_returns_answer(self):
         _make_table()
         from backend.app.cache import get_cache, set_cache
+
         set_cache("what is AI?", "AI is artificial intelligence.")
         assert get_cache("what is AI?") == "AI is artificial intelligence."
 
@@ -81,6 +90,7 @@ class TestCacheOperations:
     def test_overwrite_returns_latest(self):
         _make_table()
         from backend.app.cache import get_cache, set_cache
+
         set_cache("q", "first answer")
         set_cache("q", "second answer")
         assert get_cache("q") == "second answer"
@@ -89,6 +99,7 @@ class TestCacheOperations:
     def test_different_queries_independent(self):
         _make_table()
         from backend.app.cache import get_cache, set_cache
+
         set_cache("query A", "answer A")
         set_cache("query B", "answer B")
         assert get_cache("query A") == "answer A"
@@ -98,6 +109,7 @@ class TestCacheOperations:
     def test_cache_stores_long_answer(self):
         _make_table()
         from backend.app.cache import get_cache, set_cache
+
         long_answer = "word " * 500
         set_cache("long q", long_answer)
         assert get_cache("long q") == long_answer
@@ -107,5 +119,6 @@ class TestCacheOperations:
         """'hello' and ' hello' are different cache keys."""
         _make_table()
         from backend.app.cache import get_cache, set_cache
+
         set_cache("hello", "a")
         assert get_cache(" hello") is None

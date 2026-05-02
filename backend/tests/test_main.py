@@ -5,11 +5,11 @@ Heavy optional packages (unstructured, sentence_transformers) are stubbed at
 sys.modules level so these tests run in any CI environment.
 """
 
+import importlib
 import io
 import os
 import sys
 import types
-import importlib
 import unittest.mock as mock
 
 import pytest
@@ -23,6 +23,7 @@ os.environ.setdefault("QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/q")
 
 # Install stubs BEFORE any backend import
 from backend.tests._stubs import install_all_stubs
+
 install_all_stubs()
 
 AUTH_HEADER = {"Authorization": "Bearer test-token"}
@@ -34,14 +35,17 @@ def _build_client(monkeypatch):
     monkeypatch.setattr("backend.app.auth.verify_token", lambda token=None: "user-id")
     monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
     monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
-    monkeypatch.setattr("backend.app.metrics.get_metrics",
-                        lambda: [{"id": "1", "latency": 100}])
+    monkeypatch.setattr(
+        "backend.app.metrics.get_metrics", lambda: [{"id": "1", "latency": 100}]
+    )
 
     import backend.app.ingest as ingest_mod
+
     importlib.reload(ingest_mod)
     monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k: None)
 
     import backend.app.main as main_mod
+
     importlib.reload(main_mod)
     return TestClient(main_mod.app)
 
@@ -55,6 +59,7 @@ def client(monkeypatch):
 # GET /
 # ---------------------------------------------------------------------------
 
+
 class TestRoot:
     def test_returns_200(self, client):
         assert client.get("/").status_code == 200
@@ -66,6 +71,7 @@ class TestRoot:
 # ---------------------------------------------------------------------------
 # POST /upload
 # ---------------------------------------------------------------------------
+
 
 class TestUpload:
     def test_happy_path_returns_queued(self, client):
@@ -83,6 +89,7 @@ class TestUpload:
 # ---------------------------------------------------------------------------
 # GET /ask
 # ---------------------------------------------------------------------------
+
 
 class TestAsk:
     def test_happy_path_returns_answer(self, client):
@@ -113,10 +120,12 @@ class TestAsk:
         monkeypatch.setattr("backend.app.metrics.get_metrics", lambda: [])
 
         import backend.app.ingest as ingest_mod
+
         importlib.reload(ingest_mod)
         monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k: None)
 
         import backend.app.main as main_mod
+
         importlib.reload(main_mod)
         c = TestClient(main_mod.app, raise_server_exceptions=False)
         r = c.get("/ask", params={"q": "test"})
@@ -126,6 +135,7 @@ class TestAsk:
 # ---------------------------------------------------------------------------
 # GET /summary
 # ---------------------------------------------------------------------------
+
 
 class TestSummary:
     def test_happy_path_returns_summary(self, client):
@@ -140,6 +150,7 @@ class TestSummary:
 # ---------------------------------------------------------------------------
 # GET /metrics
 # ---------------------------------------------------------------------------
+
 
 class TestMetrics:
     def test_happy_path_returns_list(self, client):

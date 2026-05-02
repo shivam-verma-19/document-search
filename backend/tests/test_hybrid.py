@@ -25,20 +25,25 @@ def _doc(text):
 class TestBM25Retriever:
     def _make(self, texts):
         from backend.app.hybrid import BM25Retriever
+
         docs = [_doc(t) for t in texts]
         return BM25Retriever(docs), docs
 
     def test_returns_k_results(self):
-        retriever, _ = self._make(["apple pie", "banana bread", "cherry tart", "date cake"])
+        retriever, _ = self._make(
+            ["apple pie", "banana bread", "cherry tart", "date cake"]
+        )
         results = retriever.search("apple", k=2)
         assert len(results) == 2
 
     def test_best_match_first(self):
-        retriever, _ = self._make([
-            "machine learning algorithms",
-            "cooking pasta recipes",
-            "deep learning neural networks",
-        ])
+        retriever, _ = self._make(
+            [
+                "machine learning algorithms",
+                "cooking pasta recipes",
+                "deep learning neural networks",
+            ]
+        )
         results = retriever.search("deep learning", k=3)
         assert "deep learning" in results[0].page_content
 
@@ -75,6 +80,7 @@ class TestBM25Retriever:
         Regression test for: https://github.com/dorianbrown/rank_bm25/issues/...
         """
         from backend.app.hybrid import BM25Retriever
+
         retriever = BM25Retriever([])
         # Must not raise ZeroDivisionError
         results = retriever.search("anything", k=5)

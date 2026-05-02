@@ -3,11 +3,11 @@ Integration tests — wires cache + metrics + RAG path together using moto for
 AWS and lightweight stubs for LLM / vector-store.
 """
 
+import importlib
+import json
 import os
 import sys
 import types
-import importlib
-import json
 import unittest.mock as mock
 
 import boto3
@@ -20,6 +20,7 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 
 from backend.tests._stubs import install_all_stubs
+
 install_all_stubs()
 
 
@@ -33,9 +34,9 @@ def _doc(text):
 def _setup_aws():
     db = boto3.resource("dynamodb", region_name="us-east-1")
     for table_name, key in [
-        ("rag-cache",   "query"),
+        ("rag-cache", "query"),
         ("rag-metrics", "id"),
-        ("rag-eval",    "query"),
+        ("rag-eval", "query"),
     ]:
         db.create_table(
             TableName=table_name,
@@ -55,8 +56,9 @@ def _load_rag(monkeypatch, llm_answer="answer"):
     monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a: None)
     monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: docs)
     monkeypatch.setattr("backend.app.utils.log_event", lambda *a: None)
-    monkeypatch.setattr("backend.app.utils.get_secrets",
-                        lambda: {"OPENAI_API_KEY": "sk-test"})
+    monkeypatch.setattr(
+        "backend.app.utils.get_secrets", lambda: {"OPENAI_API_KEY": "sk-test"}
+    )
 
     llm = mock.MagicMock()
     llm.invoke.return_value = mock.MagicMock(content=llm_answer)
@@ -68,6 +70,7 @@ def _load_rag(monkeypatch, llm_answer="answer"):
     bm25.search.return_value = []
 
     import backend.app.rag as rag_mod
+
     importlib.reload(rag_mod)
     rag_mod._get_clients.cache_clear()
     rag_mod.llm = llm
@@ -84,7 +87,7 @@ class TestIntegration:
         _setup_aws()
         rag = _load_rag(monkeypatch, llm_answer="first answer")
 
-        first  = rag.ask_question("what is machine learning?")
+        first = rag.ask_question("what is machine learning?")
         second = rag.ask_question("what is machine learning?")
 
         assert first == second
@@ -100,6 +103,7 @@ class TestIntegration:
         rag.ask_question("unique integration query xyz")
 
         from backend.app.metrics import get_metrics
+
         items = get_metrics()
         queries = [i["query"] for i in items]
         assert any("unique integration query xyz" in q for q in queries)
@@ -117,6 +121,7 @@ class TestIntegration:
 
         # Both are in cache independently
         from backend.app.cache import get_cache
+
         a = get_cache("query alpha")
         b = get_cache("query beta")
         assert a is not None

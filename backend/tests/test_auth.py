@@ -23,22 +23,26 @@ class TestVerifyToken:
 
     def test_valid_token_returns_user_id(self):
         from backend.app.auth import verify_token
+
         result = verify_token(self._make_token("Bearer abc123"))
         assert result == "user-id"
 
     def test_any_non_empty_token_accepted(self):
         from backend.app.auth import verify_token
+
         result = verify_token(self._make_token("Bearer totally-fake-token"))
         assert result is not None
 
     def test_none_token_raises_401(self):
         from backend.app.auth import verify_token
+
         with pytest.raises(HTTPException) as exc_info:
             verify_token(None)
         assert exc_info.value.status_code == 401
 
     def test_false_token_raises_401(self):
         from backend.app.auth import verify_token
+
         with pytest.raises(HTTPException) as exc_info:
             verify_token(False)
         assert exc_info.value.status_code == 401
@@ -46,6 +50,7 @@ class TestVerifyToken:
     def test_empty_string_token_raises_401(self):
         """Empty string is falsy — should also be rejected."""
         from backend.app.auth import verify_token
+
         with pytest.raises(HTTPException) as exc_info:
             verify_token("")
         assert exc_info.value.status_code == 401

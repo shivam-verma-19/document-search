@@ -11,10 +11,10 @@ Covers:
   - summarize_doc   (delegates to LLM + vector search)
 """
 
+import importlib
 import os
 import sys
 import types
-import importlib
 import unittest.mock as mock
 
 import pytest
@@ -26,12 +26,14 @@ os.environ.setdefault("SECRET_NAME", "rag-secrets")
 
 # Stub heavy optional deps BEFORE any backend import
 from backend.tests._stubs import install_all_stubs
+
 install_all_stubs()
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _doc(text):
     d = types.SimpleNamespace()
@@ -58,8 +60,15 @@ def _make_bm25(docs=None):
     return bm25
 
 
-def _load_rag(monkeypatch, *, cache_hit=None, llm_answer="good answer",
-              vector_docs=None, bm25_docs=None, rerank_passthrough=True):
+def _load_rag(
+    monkeypatch,
+    *,
+    cache_hit=None,
+    llm_answer="good answer",
+    vector_docs=None,
+    bm25_docs=None,
+    rerank_passthrough=True,
+):
     """
     Patch all side effects and return a freshly-imported rag module with
     test doubles injected via the public module globals (llm, vector_db, bm25).
@@ -73,8 +82,9 @@ def _load_rag(monkeypatch, *, cache_hit=None, llm_answer="good answer",
     monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a, **k: None)
     monkeypatch.setattr("backend.app.evaluation.store_eval", lambda *a, **k: None)
     monkeypatch.setattr("backend.app.utils.log_event", lambda *a, **k: None)
-    monkeypatch.setattr("backend.app.utils.get_secrets",
-                        lambda: {"OPENAI_API_KEY": "sk-test"})
+    monkeypatch.setattr(
+        "backend.app.utils.get_secrets", lambda: {"OPENAI_API_KEY": "sk-test"}
+    )
 
     # reranker
     if rerank_passthrough:
@@ -83,6 +93,7 @@ def _load_rag(monkeypatch, *, cache_hit=None, llm_answer="good answer",
         monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: [])
 
     import backend.app.rag as rag_mod
+
     importlib.reload(rag_mod)
     # Clear lru_cache so the fresh reload is used
     rag_mod._get_clients.cache_clear()
@@ -98,6 +109,7 @@ def _load_rag(monkeypatch, *, cache_hit=None, llm_answer="good answer",
 # ---------------------------------------------------------------------------
 # rewrite_query
 # ---------------------------------------------------------------------------
+
 
 class TestRewriteQuery:
     def test_returns_rewritten_string(self, monkeypatch):
@@ -129,6 +141,7 @@ class TestRewriteQuery:
 # hybrid_search
 # ---------------------------------------------------------------------------
 
+
 class TestHybridSearch:
     def test_returns_up_to_k_docs(self, monkeypatch):
         docs = [_doc(f"unique text {i}") for i in range(10)]
@@ -140,9 +153,11 @@ class TestHybridSearch:
         shared = _doc("shared content")
         extra_semantic = _doc("only semantic")
         extra_keyword = _doc("only keyword")
-        rag = _load_rag(monkeypatch,
-                        vector_docs=[shared, extra_semantic],
-                        bm25_docs=[shared, extra_keyword])
+        rag = _load_rag(
+            monkeypatch,
+            vector_docs=[shared, extra_semantic],
+            bm25_docs=[shared, extra_keyword],
+        )
         results = rag.hybrid_search("q", k=10)
         assert [r.page_content for r in results].count("shared content") == 1
 
@@ -160,6 +175,7 @@ class TestHybridSearch:
 # ask_question
 # ---------------------------------------------------------------------------
 
+
 class TestAskQuestion:
     def test_cache_hit_returns_cached_answer(self, monkeypatch):
         rag = _load_rag(monkeypatch, cache_hit="cached!")
@@ -175,21 +191,25 @@ class TestAskQuestion:
 
     def test_fallback_when_rerank_returns_empty(self, monkeypatch):
         """When rerank strips all docs, the LLM fallback path runs."""
-        rag = _load_rag(monkeypatch,
-                        vector_docs=[_doc("only one")],
-                        bm25_docs=[],
-                        rerank_passthrough=False,
-                        llm_answer="fallback answer")
+        rag = _load_rag(
+            monkeypatch,
+            vector_docs=[_doc("only one")],
+            bm25_docs=[],
+            rerank_passthrough=False,
+            llm_answer="fallback answer",
+        )
         result = rag.ask_question("obscure topic")
         assert result is not None
         assert isinstance(result, str)
 
     def test_fallback_message_contains_llm_answer(self, monkeypatch):
-        rag = _load_rag(monkeypatch,
-                        vector_docs=[_doc("x")],
-                        bm25_docs=[],
-                        rerank_passthrough=False,
-                        llm_answer="direct llm response")
+        rag = _load_rag(
+            monkeypatch,
+            vector_docs=[_doc("x")],
+            bm25_docs=[],
+            rerank_passthrough=False,
+            llm_answer="direct llm response",
+        )
         result = rag.ask_question("q")
         assert "direct llm response" in result
 
@@ -219,6 +239,7 @@ class TestAskQuestion:
 # ---------------------------------------------------------------------------
 # summarize_doc
 # ---------------------------------------------------------------------------
+
 
 class TestSummarizeDoc:
     def test_returns_string(self, monkeypatch):

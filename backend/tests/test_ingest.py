@@ -25,6 +25,7 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 # Stub `unstructured` before any app import touches it
 # ---------------------------------------------------------------------------
 
+
 def _install_unstructured_stub():
     if "unstructured" in sys.modules:
         return
@@ -44,6 +45,7 @@ _install_unstructured_stub()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class _FakeUpload:
     def __init__(self, filename="test.pdf", content=b"pdf bytes"):
@@ -67,7 +69,9 @@ def _create_s3_bucket(name="rag-upload-bucket"):
 
 def _reload_ingest(overrides=None):
     import importlib
+
     import backend.app.ingest as m
+
     importlib.reload(m)
     for k, v in (overrides or {}).items():
         setattr(m, k, v)
@@ -77,6 +81,7 @@ def _reload_ingest(overrides=None):
 # ---------------------------------------------------------------------------
 # enqueue_file
 # ---------------------------------------------------------------------------
+
 
 class TestEnqueueFile:
     @mock_aws
@@ -111,6 +116,7 @@ class TestEnqueueFile:
 # ---------------------------------------------------------------------------
 # process_upload
 # ---------------------------------------------------------------------------
+
 
 def _fake_overrides():
     return {
@@ -159,6 +165,6 @@ class TestProcessUpload:
             mod.process_upload(_FakeUpload("x.pdf", b"real-content"), "u")
             assert partition_calls[0] == b"real-content"
         finally:
-            sys.modules["unstructured.partition.auto"].partition = (
-                lambda **kwargs: [types.SimpleNamespace(text="extracted text")]
-            )
+            sys.modules["unstructured.partition.auto"].partition = lambda **kwargs: [
+                types.SimpleNamespace(text="extracted text")
+            ]
