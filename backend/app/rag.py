@@ -13,7 +13,12 @@ from .reranker import rerank
 from .utils import build_prompt, log_event
 
 _forbidden_query_patterns = {
-    "hack", "exploit", "malware", "ddos", "sql injection", "drop table"
+    "hack",
+    "exploit",
+    "malware",
+    "ddos",
+    "sql injection",
+    "drop table",
 }
 
 
@@ -140,8 +145,7 @@ def ask_question(query: str):
             ans = "Error generating response."
 
         final_answer = (
-            "There is no info in the context about this query. Switching to LLM\n"
-            + ans
+            "There is no info in the context about this query. Switching to LLM\n" + ans
         )
         latency = int((time.time() - start_time) * 1000)
         set_cache(query, final_answer)

@@ -1,4 +1,5 @@
 from functools import lru_cache
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,9 +16,7 @@ class Settings(BaseSettings):
     cognito_user_pool_id: str = Field(default="")
     cognito_client_id: str = Field(default="")
     max_upload_size: int = Field(default=10 * 1024 * 1024)
-    allowed_upload_extensions: set[str] = Field(
-        default={"pdf", "txt", "docx"}
-    )
+    allowed_upload_extensions: set[str] = Field(default={"pdf", "txt", "docx"})
     allowed_upload_mimes: set[str] = Field(
         default={
             "application/pdf",

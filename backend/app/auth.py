@@ -9,9 +9,7 @@ from .config import get_settings
 security = HTTPBearer()
 settings = get_settings()
 
-COGNITO_ISSUER = (
-    f"https://cognito-idp.{settings.aws_region}.amazonaws.com/{settings.cognito_user_pool_id}"
-)
+COGNITO_ISSUER = f"https://cognito-idp.{settings.aws_region}.amazonaws.com/{settings.cognito_user_pool_id}"
 JWKS_URL = f"{COGNITO_ISSUER}/.well-known/jwks.json"
 jwk_client = PyJWKClient(JWKS_URL)
 
