@@ -31,10 +31,12 @@ AUTH_HEADER = {"Authorization": "Bearer test-token"}
 
 def _build_client(monkeypatch):
     """Patch all business logic and return a fresh TestClient."""
-    monkeypatch.setattr("backend.app.utils.save_to_s3", lambda f: "mocked-s3-key")
     monkeypatch.setattr("backend.app.auth.verify_token", lambda token=None: "user-id")
     monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
     monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
+    monkeypatch.setattr(
+        "backend.app.ingest.upload_file_to_s3", lambda file, user: "mocked-key"
+    )
     monkeypatch.setattr(
         "backend.app.metrics.get_metrics", lambda: [{"id": "1", "latency": 100}]
     )
@@ -42,7 +44,9 @@ def _build_client(monkeypatch):
     import backend.app.ingest as ingest_mod
 
     importlib.reload(ingest_mod)
-    monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k: None)
+    monkeypatch.setattr(
+        "backend.app.ingest.enqueue_file", lambda bucket, key, user: None
+    )
 
     import backend.app.main as main_mod
 
@@ -122,7 +126,9 @@ class TestAsk:
         import backend.app.ingest as ingest_mod
 
         importlib.reload(ingest_mod)
-        monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k: None)
+        monkeypatch.setattr(
+            "backend.app.ingest.enqueue_file", lambda bucket, key, user: None
+        )
 
         import backend.app.main as main_mod
 

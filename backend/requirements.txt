@@ -14,3 +14,4 @@ langchain-text-splitters
 pytest
 moto
 python-multipart
+mangum
