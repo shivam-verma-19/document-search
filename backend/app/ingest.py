@@ -9,10 +9,10 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from unstructured.partition.auto import partition
 
-
 s3 = boto3.client("s3")  # type: ignore
 sqs = boto3.client("sqs")
 QUEUE_URL = os.environ["QUEUE_URL"]
+
 
 def process_upload(file, user):
     # ✅ Read ONCE
@@ -34,10 +34,7 @@ def process_upload(file, user):
 
     docs = [Document(page_content=text)]
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=100
-    )
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
 
     chunks = splitter.split_documents(docs)
 
@@ -46,11 +43,7 @@ def process_upload(file, user):
 
     embeddings = OpenAIEmbeddings()
 
-    PineconeVectorStore.from_documents(
-        chunks,
-        embeddings,
-        index_name="rag-index"
-    )
+    PineconeVectorStore.from_documents(chunks, embeddings, index_name="rag-index")
 
     return {"message": "Uploaded & processed"}
 

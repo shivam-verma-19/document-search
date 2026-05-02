@@ -31,9 +31,7 @@ def get_vector_db():
     global _vector_db
     if _vector_db is None:
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        _vector_db = PineconeVectorStore(
-            index_name="rag-index", embedding=embeddings
-        )
+        _vector_db = PineconeVectorStore(index_name="rag-index", embedding=embeddings)
     return _vector_db
 
 
@@ -59,9 +57,13 @@ def rewrite_query(query):
         return ""
 
     try:
-        response = get_llm().invoke(
-            f"Rewrite this query to improve retrieval without changing intent:\n{query}"
-        ).content
+        response = (
+            get_llm()
+            .invoke(
+                f"Rewrite this query to improve retrieval without changing intent:\n{query}"
+            )
+            .content
+        )
 
         if isinstance(response, str):
             return response.strip()
@@ -183,8 +185,7 @@ def ask_question(query):
 
         # ✅ FIXED: return string (not tuple)
         final_answer = (
-            "There is no info in the context about this query. Switching to LLM\n"
-            + ans
+            "There is no info in the context about this query. Switching to LLM\n" + ans
         )
 
         set_cache(query, final_answer)

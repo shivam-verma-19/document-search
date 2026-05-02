@@ -49,10 +49,7 @@ def install_all_stubs():
 
         def similarity_search(self, query, k=5):
             # Return deterministic fake docs
-            return [
-                MockDoc(f"doc content {i} for {query}")
-                for i in range(min(k, 5))
-            ]
+            return [MockDoc(f"doc content {i} for {query}") for i in range(min(k, 5))]
 
     mock_pinecone_module = MagicMock()
     mock_pinecone_module.PineconeVectorStore = MockVectorStore
@@ -62,9 +59,7 @@ def install_all_stubs():
     # =========================
     # 4. Optional: Stub reranker (if heavy)
     # =========================
-    sys.modules["backend.app.reranker"] = MagicMock(
-        rerank=lambda query, docs: docs
-    )
+    sys.modules["backend.app.reranker"] = MagicMock(rerank=lambda query, docs: docs)
 
     # =========================
     # 5. Optional: Stub monitoring/metrics (no-op)
