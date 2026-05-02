@@ -13,40 +13,61 @@ from backend.app.reranker import rerank
 from backend.app.utils import build_prompt, get_secrets, log_event
 
 # =========================
-# INIT (RUN ONCE)
+# LAZY INIT (CRITICAL FIX)
 # =========================
-secrets = get_secrets()
+_llm = None
+_vector_db = None
+_bm25 = None
 
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-4o-mini")
 
-vector_db = PineconeVectorStore(index_name="rag-index", embedding=embeddings)
+def get_llm():
+    global _llm
+    if _llm is None:
+        _llm = ChatOpenAI(model="gpt-4o-mini")
+    return _llm
 
-# ⚠️ TEMP: replace later with proper ingestion source
-all_docs = vector_db.similarity_search(" ", k=200)
-bm25 = BM25Retriever(all_docs)
+
+def get_vector_db():
+    global _vector_db
+    if _vector_db is None:
+        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        _vector_db = PineconeVectorStore(
+            index_name="rag-index", embedding=embeddings
+        )
+    return _vector_db
+
+
+def get_bm25():
+    global _bm25
+    if _bm25 is None:
+        try:
+            vector_db = get_vector_db()
+            docs = vector_db.similarity_search(" ", k=200) or []
+        except Exception:
+            docs = []
+
+        _bm25 = BM25Retriever(docs)
+
+    return _bm25
 
 
 # =========================
 # QUERY REWRITE
 # =========================
 def rewrite_query(query):
-    prompt = f"""
-    Rewrite this query to improve retrieval without changing intent:
-    {query}
-    """
+    if not query:
+        return ""
+
     try:
-        response = llm.invoke(prompt).content
+        response = get_llm().invoke(
+            f"Rewrite this query to improve retrieval without changing intent:\n{query}"
+        ).content
 
         if isinstance(response, str):
             return response.strip()
 
-        # handle list case (rare but possible)
         if isinstance(response, list):
-            text = " ".join(
-                item if isinstance(item, str) else str(item) for item in response
-            )
-            return text.strip()
+            return " ".join(map(str, response)).strip()
 
         return query
 
@@ -58,16 +79,35 @@ def rewrite_query(query):
 # HYBRID SEARCH
 # =========================
 def hybrid_search(query, k=5):
-    semantic_docs = vector_db.similarity_search(query, k=10)
-    keyword_docs = bm25.search(query, k=10)
+    if not query:
+        return []
+
+    try:
+        vector_db = get_vector_db()
+        semantic_docs = vector_db.similarity_search(query, k=10) or []
+    except Exception:
+        semantic_docs = []
+
+    try:
+        bm25 = get_bm25()
+        keyword_docs = bm25.search(query, k=10) if bm25 else []
+    except Exception:
+        keyword_docs = []
+
+    if not semantic_docs and not keyword_docs:
+        return []
 
     seen = set()
     combined = []
 
     for doc in semantic_docs + keyword_docs:
-        if doc.page_content not in seen:
+        content = getattr(doc, "page_content", None)
+        if not content:
+            continue
+
+        if content not in seen:
             combined.append(doc)
-            seen.add(doc.page_content)
+            seen.add(content)
 
     return combined[:k]
 
@@ -76,6 +116,9 @@ def hybrid_search(query, k=5):
 # MAIN FUNCTION
 # =========================
 def ask_question(query):
+    if not query:
+        return ""
+
     request_id = str(uuid.uuid4())
     start_time = time.time()
 
@@ -109,7 +152,10 @@ def ask_question(query):
     # =========================
     # RERANK
     # =========================
-    docs = rerank(rewritten_query, docs)
+    try:
+        docs = rerank(rewritten_query, docs)
+    except Exception:
+        docs = docs or []
 
     # =========================
     # FALLBACK
@@ -120,12 +166,12 @@ def ask_question(query):
         ans = None
         for _ in range(2):
             try:
-                response = llm.invoke(query).content
+                response = get_llm().invoke(query).content
 
                 if isinstance(response, str):
                     ans = response
                 else:
-                    ans = " ".join(str(x) for x in response)
+                    ans = " ".join(map(str, response))
                 break
             except Exception as e:
                 print(f"[{request_id}] Retry error: {e}")
@@ -135,9 +181,10 @@ def ask_question(query):
 
         latency = int((time.time() - start_time) * 1000)
 
+        # ✅ FIXED: return string (not tuple)
         final_answer = (
-            "There is no info in the context about this query. Switching to LLM\n",
-            ans,
+            "There is no info in the context about this query. Switching to LLM\n"
+            + ans
         )
 
         set_cache(query, final_answer)
@@ -151,7 +198,10 @@ def ask_question(query):
     # =========================
     # CONTEXT
     # =========================
-    context = "\n".join([d.page_content for d in docs])
+    context = "\n".join(
+        [d.page_content for d in docs if getattr(d, "page_content", None)]
+    )
+
     prompt = build_prompt(context, query)
 
     # =========================
@@ -160,7 +210,7 @@ def ask_question(query):
     ans = None
     for _ in range(2):
         try:
-            ans = llm.invoke(prompt).content
+            ans = get_llm().invoke(prompt).content
             break
         except Exception as e:
             print(f"[{request_id}] Retry error: {e}")
@@ -174,8 +224,6 @@ def ask_question(query):
     latency = int((time.time() - start_time) * 1000)
 
     push_metric("Latency", latency)
-
-    # store generic evaluation (no ground truth)
     store_eval(query, latency, 0)
 
     log_metrics(query, latency, "rag")
@@ -193,7 +241,23 @@ def ask_question(query):
 # SUMMARIZATION
 # =========================
 def summarize_doc(doc_id):
-    docs = vector_db.similarity_search(doc_id, k=10)
-    context = "\n".join([d.page_content for d in docs])
+    if not doc_id:
+        return ""
 
-    return llm.invoke(f"Summarize:\n{context}").content
+    try:
+        vector_db = get_vector_db()
+        docs = vector_db.similarity_search(doc_id, k=10) or []
+    except Exception:
+        docs = []
+
+    if not docs:
+        return "No content found."
+
+    context = "\n".join(
+        [d.page_content for d in docs if getattr(d, "page_content", None)]
+    )
+
+    try:
+        return get_llm().invoke(f"Summarize:\n{context}").content
+    except Exception:
+        return "Error generating summary."

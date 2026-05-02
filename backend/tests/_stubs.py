@@ -1,60 +1,104 @@
+# backend/tests/_stubs.py
+
 import sys
-import types
-import unittest.mock as mock
+from unittest.mock import MagicMock
 
 
 def install_all_stubs():
-    _stub_unstructured()
-    _stub_sentence_transformers()
-    _stub_pinecone_and_openai()
+    """
+    Install all external dependency stubs BEFORE importing app code.
+    This prevents real network/API calls in tests.
+    """
 
+    # =========================
+    # 1. Mock boto3 (AWS Secrets Manager)
+    # =========================
+    import boto3
 
-def _stub_unstructured():
-    if "unstructured" in sys.modules:
-        return
-    pkg = types.ModuleType("unstructured")
-    pm = types.ModuleType("unstructured.partition")
-    am = types.ModuleType("unstructured.partition.auto")
-    am.partition = lambda **kw: [types.SimpleNamespace(text="extracted text")]
-    sys.modules.update(
-        {
-            "unstructured": pkg,
-            "unstructured.partition": pm,
-            "unstructured.partition.auto": am,
-        }
-    )
+    mock_sm = MagicMock()
+    mock_sm.get_secret_value.return_value = {
+        "SecretString": '{"OPENAI_API_KEY": "test-key"}'
+    }
 
+    boto3.client = MagicMock(return_value=mock_sm)
 
-def _stub_sentence_transformers():
-    if "sentence_transformers" in sys.modules:
-        return
-    st = types.ModuleType("sentence_transformers")
+    # =========================
+    # 2. Mock ChatOpenAI (LLM)
+    # =========================
+    class MockLLM:
+        def invoke(self, prompt):
+            # Always return predictable response
+            return MagicMock(content="mocked llm response")
 
-    class FakeCrossEncoder:
-        def __init__(self, *a, **kw):
+    mock_openai_module = MagicMock()
+    mock_openai_module.ChatOpenAI = MagicMock(return_value=MockLLM())
+    mock_openai_module.OpenAIEmbeddings = MagicMock()
+
+    sys.modules["langchain_openai"] = mock_openai_module
+
+    # =========================
+    # 3. Mock Pinecone Vector Store
+    # =========================
+    class MockDoc:
+        def __init__(self, content):
+            self.page_content = content
+
+    class MockVectorStore:
+        def __init__(self, *args, **kwargs):
             pass
 
-        def predict(self, pairs):
-            # Return equal scores so order is stable
-            return [0.5] * len(pairs)
+        def similarity_search(self, query, k=5):
+            # Return deterministic fake docs
+            return [
+                MockDoc(f"doc content {i} for {query}")
+                for i in range(min(k, 5))
+            ]
 
-    st.CrossEncoder = FakeCrossEncoder
-    sys.modules["sentence_transformers"] = st
+    mock_pinecone_module = MagicMock()
+    mock_pinecone_module.PineconeVectorStore = MockVectorStore
 
+    sys.modules["langchain_pinecone"] = mock_pinecone_module
 
-def _stub_pinecone_and_openai():
-    """Provide minimal stubs so module-level code in rag.py doesn't fail."""
-    # langchain_pinecone
-    if "langchain_pinecone" not in sys.modules:
-        lp = types.ModuleType("langchain_pinecone")
-        fake_vdb = mock.MagicMock()
-        fake_vdb.similarity_search.return_value = []
-        lp.PineconeVectorStore = mock.MagicMock(return_value=fake_vdb)
-        sys.modules["langchain_pinecone"] = lp
+    # =========================
+    # 4. Optional: Stub reranker (if heavy)
+    # =========================
+    sys.modules["backend.app.reranker"] = MagicMock(
+        rerank=lambda query, docs: docs
+    )
 
-    # langchain_openai
-    if "langchain_openai" not in sys.modules:
-        lo = types.ModuleType("langchain_openai")
-        lo.ChatOpenAI = mock.MagicMock(return_value=mock.MagicMock())
-        lo.OpenAIEmbeddings = mock.MagicMock(return_value=mock.MagicMock())
-        sys.modules["langchain_openai"] = lo
+    # =========================
+    # 5. Optional: Stub monitoring/metrics (no-op)
+    # =========================
+    sys.modules["backend.app.monitoring"] = MagicMock(
+        push_metric=lambda *args, **kwargs: None
+    )
+
+    sys.modules["backend.app.metrics"] = MagicMock(
+        log_metrics=lambda *args, **kwargs: None
+    )
+
+    sys.modules["backend.app.evaluation"] = MagicMock(
+        store_eval=lambda *args, **kwargs: None
+    )
+
+    sys.modules["backend.app.utils"] = MagicMock(
+        build_prompt=lambda context, query: f"{context}\n{query}",
+        get_secrets=lambda: {},
+        log_event=lambda *args, **kwargs: None,
+    )
+
+    # =========================
+    # 6. Cache (simple in-memory)
+    # =========================
+    _cache = {}
+
+    def get_cache(key):
+        return _cache.get(key)
+
+    def set_cache(key, value):
+        _cache[key] = value
+
+    sys.modules["backend.app.cache"] = MagicMock(
+        get_cache=get_cache,
+        set_cache=set_cache,
+    )
