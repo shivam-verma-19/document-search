@@ -22,9 +22,9 @@ os.environ.setdefault("SECRET_NAME", "rag-secrets")
 os.environ.setdefault("QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/q")
 
 # Install stubs BEFORE any backend import
-from backend.tests._stubs import install_all_stubs
+from . import _stubs
 
-install_all_stubs()
+_stubs.install_all_stubs()
 
 AUTH_HEADER = {"Authorization": "Bearer test-token"}
 

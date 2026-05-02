@@ -19,9 +19,9 @@ os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 
-from backend.tests._stubs import install_all_stubs
+from . import _stubs
 
-install_all_stubs()
+_stubs.install_all_stubs()
 
 
 def _doc(text):
@@ -72,9 +72,9 @@ def _load_rag(monkeypatch, llm_answer="answer"):
     import backend.app.rag as rag_mod
 
     importlib.reload(rag_mod)
-    rag_mod.llm = llm
-    rag_mod.vector_db = vdb
-    rag_mod.bm25 = bm25
+    rag_mod._llm = llm
+    rag_mod._vector_db = vdb
+    rag_mod._bm25 = bm25
 
     return rag_mod
 
@@ -91,7 +91,7 @@ class TestIntegration:
 
         assert first == second
         # LLM should only fire for rewrite + one generate (not twice)
-        assert rag.llm.invoke.call_count <= 3
+        assert rag._llm.invoke.call_count <= 3  # type: ignore
 
     @mock_aws
     def test_metrics_written_after_rag_query(self, monkeypatch):
@@ -105,17 +105,17 @@ class TestIntegration:
 
         items = get_metrics()
         queries = [i["query"] for i in items]
-        assert any("unique integration query xyz" in q for q in queries)
+        assert any("unique integration query xyz" in str(q) for q in queries)
 
     @mock_aws
     def test_different_queries_get_independent_cache_entries(self, monkeypatch):
         _setup_aws()
         rag = _load_rag(monkeypatch)
 
-        rag.llm.invoke.return_value = mock.MagicMock(content="answer A")
+        rag._llm.invoke.return_value = mock.MagicMock(content="answer A")  # type: ignore
         rag.ask_question("query alpha")
 
-        rag.llm.invoke.return_value = mock.MagicMock(content="answer B")
+        rag._llm.invoke.return_value = mock.MagicMock(content="answer B")  # type: ignore
         rag.ask_question("query beta")
 
         # Both are in cache independently

@@ -22,7 +22,9 @@ def process_upload(file, user):
     file.file.seek(0)
 
     # ✅ Upload using fresh stream
-    s3.upload_fileobj(BytesIO(content), "rag-upload-bucket", f"{user}/{file.filename}")
+    s3.upload_fileobj(
+        BytesIO(content), "rag-pipeline-upload-bucket", f"{user}/{file.filename}"
+    )
 
     # ✅ Use separate stream for parsing
     elements = partition(file=BytesIO(content))

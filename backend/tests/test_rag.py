@@ -25,9 +25,9 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 
 # Stub heavy optional deps BEFORE any backend import
-from backend.tests._stubs import install_all_stubs
+from . import _stubs
 
-install_all_stubs()
+_stubs.install_all_stubs()
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +76,6 @@ def _load_rag(
     vector_docs = vector_docs or [_doc(f"doc {i}") for i in range(5)]
 
     # AWS / metrics stubs
-    monkeypatch.setattr("backend.app.cache.get_cache", lambda q: cache_hit)
-    monkeypatch.setattr("backend.app.cache.set_cache", lambda q, a: None)
     monkeypatch.setattr("backend.app.metrics.log_metrics", lambda *a, **k: None)
     monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a, **k: None)
     monkeypatch.setattr("backend.app.evaluation.store_eval", lambda *a, **k: None)
@@ -85,6 +83,12 @@ def _load_rag(
     monkeypatch.setattr(
         "backend.app.utils.get_secrets", lambda: {"OPENAI_API_KEY": "sk-test"}
     )
+    if cache_hit is not None:
+        monkeypatch.setattr("backend.app.cache.get_cache", lambda q: cache_hit)
+    else:
+        monkeypatch.setattr("backend.app.cache.get_cache", lambda q: None)
+
+    monkeypatch.setattr("backend.app.cache.set_cache", lambda q, a: None)
 
     # reranker
     if rerank_passthrough:
@@ -97,9 +101,9 @@ def _load_rag(
     importlib.reload(rag_mod)
 
     # Inject test doubles via module globals (picked up by _clients())
-    rag_mod.llm = _make_llm(llm_answer)
-    rag_mod.vector_db = _make_vdb(vector_docs)
-    rag_mod.bm25 = _make_bm25(bm25_docs)
+    rag_mod._llm = _make_llm(llm_answer)
+    rag_mod._vector_db = _make_vdb(vector_docs)
+    rag_mod._bm25 = _make_bm25(bm25_docs)
 
     return rag_mod
 
@@ -118,13 +122,13 @@ class TestRewriteQuery:
 
     def test_falls_back_on_llm_exception(self, monkeypatch):
         rag = _load_rag(monkeypatch)
-        rag.llm.invoke.side_effect = Exception("network error")
+        rag._llm.invoke.side_effect = Exception("network error")  # type: ignore
         result = rag.rewrite_query("original query")
         assert result == "original query"
 
     def test_handles_list_response(self, monkeypatch):
         rag = _load_rag(monkeypatch)
-        rag.llm.invoke.return_value = mock.MagicMock(content=["rewritten", " query"])
+        rag._llm.invoke.return_value = mock.MagicMock(content=["rewritten", " query"])  # type: ignore
         result = rag.rewrite_query("q")
         assert isinstance(result, str)
         assert "rewritten" in result
@@ -209,11 +213,11 @@ class TestAskQuestion:
             llm_answer="direct llm response",
         )
         result = rag.ask_question("q")
-        assert "direct llm response" in result
+        assert "direct llm response" in result  # type: ignore
 
     def test_llm_failure_returns_error_string(self, monkeypatch):
         rag = _load_rag(monkeypatch)
-        rag.llm.invoke.side_effect = Exception("LLM down")
+        rag._llm.invoke.side_effect = Exception("LLM down")  # type: ignore
         result = rag.ask_question("anything")
         assert result is not None
         assert isinstance(result, str)
@@ -247,7 +251,7 @@ class TestSummarizeDoc:
     def test_calls_vector_search_with_doc_id(self, monkeypatch):
         rag = _load_rag(monkeypatch, llm_answer="summary")
         rag.summarize_doc("my-doc-id")
-        rag.vector_db.similarity_search.assert_called_with("my-doc-id", k=10)
+        rag._vector_db.similarity_search.assert_called_with("my-doc-id", k=10)  # type: ignore
 
     def test_returns_llm_content(self, monkeypatch):
         rag = _load_rag(monkeypatch, llm_answer="concise summary text")
