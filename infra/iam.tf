@@ -44,13 +44,13 @@ resource "aws_iam_policy" "lambda_policy" {
           "s3:GetObject",
           "s3:PutObject"
         ]
-        Resource = "arn:aws:s3:::rag-upload-bucket/*"
+        Resource = "arn:aws:s3:::rag-pipeline-upload-bucket/*"
       },
 
       {
         Effect = "Allow"
         Action = "s3:ListBucket"
-        Resource = "arn:aws:s3:::rag-upload-bucket"
+        Resource = "arn:aws:s3:::rag-pipeline-upload-bucket"
       },
 
       # 🔹 SQS

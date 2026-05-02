@@ -81,6 +81,7 @@ jobs:
 
       - name: Build Docker
         run: docker build -t rag-app .
+        working-directory: backend
 
 # =========================
 # 🚀 DEPLOY (ONLY MAIN)

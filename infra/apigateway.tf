@@ -6,8 +6,7 @@ resource "aws_apigatewayv2_api" "http_api" {
 resource "aws_apigatewayv2_integration" "lambda_integration" {
   api_id           = aws_apigatewayv2_api.http_api.id
   integration_type = "AWS_PROXY"
-
-  integration_uri = aws_lambda_function.rag_lambda.invoke_arn
+  integration_uri  = aws_lambda_function.rag_api.invoke_arn
 }
 
 resource "aws_apigatewayv2_stage" "default" {
@@ -23,7 +22,7 @@ resource "aws_apigatewayv2_stage" "default" {
 resource "aws_lambda_permission" "api_gw" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.rag_lambda.function_name
+  function_name = aws_lambda_function.rag_api.function_name
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"

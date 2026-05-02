@@ -1,12 +1,14 @@
-from fastapi import Depends, FastAPI, UploadFile
+import os
 
-from backend.app.auth import verify_token
-from backend.app.ingest import enqueue_file
-from backend.app.metrics import get_metrics
-from backend.app.rag import ask_question, summarize_doc
-from backend.app.utils import save_to_s3
+from fastapi import Depends, FastAPI, UploadFile
+from mangum import Mangum
+
+from .auth import verify_token
+from .ingest import enqueue_file, upload_file_to_s3
 
 app = FastAPI()
+
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "rag-pipeline-upload-bucket")
 
 
 @app.get("/")
@@ -15,26 +17,31 @@ def root():
 
 
 @app.post("/upload")
-def upload(file: UploadFile):
-    # 1. Save to S3
-    s3_key = save_to_s3(file)
-
-    # 2. Push to SQS instead of processing inline
-    enqueue_file(s3_key)
-
-    return {"status": "queued"}
+def upload(file: UploadFile, user=Depends(verify_token)):
+    key = upload_file_to_s3(file, user)
+    enqueue_file(BUCKET_NAME, key, user)
+    return {"status": "queued", "key": key}
 
 
 @app.get("/ask")
 def ask(q: str, user=Depends(verify_token)):
+    from .rag import ask_question
+
     return {"answer": ask_question(q)}
 
 
 @app.get("/summary")
 def summary(doc_id: str, user=Depends(verify_token)):
+    from .rag import summarize_doc
+
     return {"summary": summarize_doc(doc_id)}
 
 
 @app.get("/metrics")
 def metrics(user=Depends(verify_token)):
+    from .metrics import get_metrics
+
     return get_metrics()
+
+
+handler = Mangum(app)
