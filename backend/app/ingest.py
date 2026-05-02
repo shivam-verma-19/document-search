@@ -1,65 +1,74 @@
 import json
-import os
+import re
 from io import BytesIO
 
 import boto3
-from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from unstructured.partition.auto import partition
+from fastapi import HTTPException, UploadFile
 
-s3 = boto3.client("s3")  # type: ignore
+from .config import get_settings
+
+settings = get_settings()
+s3 = boto3.client("s3")
 sqs = boto3.client("sqs")
-QUEUE_URL = os.environ["QUEUE_URL"]
-BUCKET_NAME = os.environ.get("BUCKET_NAME", "rag-pipeline-upload-bucket")
+
+_FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
-def upload_file_to_s3(file, user):
-    content = file.file.read()
+def sanitize_filename(filename: str) -> str:
+    filename = filename.strip()
+    filename = _FILENAME_SANITIZE_RE.sub("_", filename)
+    return filename[:255].strip("._")
+
+
+def validate_upload_file(file: UploadFile) -> bytes:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    if "." not in file.filename:
+        raise HTTPException(status_code=400, detail="Invalid file extension")
+
+    extension = file.filename.rsplit(".", 1)[-1].lower()
+    if extension not in settings.allowed_upload_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file extension: {extension}",
+        )
+
+    if file.content_type not in settings.allowed_upload_mimes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported content type: {file.content_type}",
+        )
+
+    content = file.file.read(settings.max_upload_size + 1)
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    if len(content) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File exceeds max size of {settings.max_upload_size} bytes",
+        )
+
+    lower = content.lower()
+    if any(pattern in lower for pattern in settings.forbidden_upload_patterns):
+        raise HTTPException(status_code=400, detail="Suspicious content detected")
+
     file.file.seek(0)
+    return content
 
-    key = f"{user}/{file.filename}"
-    s3.upload_fileobj(BytesIO(content), BUCKET_NAME, key)
 
+def upload_file_to_s3(file: UploadFile, user: str):
+    content = validate_upload_file(file)
+    safe_filename = sanitize_filename(file.filename)
+    key = f"{user}/{safe_filename}"
+
+    s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
     return key
 
 
-def enqueue_file(bucket, key, user):
+def enqueue_file(bucket: str, key: str, user: str):
     sqs.send_message(
-        QueueUrl=QUEUE_URL,
+        QueueUrl=settings.queue_url,
         MessageBody=json.dumps({"bucket": bucket, "key": key, "user": user}),
     )
-
-
-def process_s3_upload(bucket, key, user=None):
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    content = obj["Body"].read()
-
-    if not content.strip():
-        return {"message": "Empty document"}
-
-    elements = partition(file=BytesIO(content))
-    text = "\n".join([el.text for el in elements if getattr(el, "text", None)])
-
-    if not text.strip():
-        return {"message": "Empty document"}
-
-    docs = [Document(page_content=text)]
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    chunks = splitter.split_documents(docs)
-
-    if not chunks:
-        return {"message": "No chunks generated"}
-
-    embeddings = OpenAIEmbeddings()
-    PineconeVectorStore.from_documents(chunks, embeddings, index_name="rag-index")
-
-    return {"message": "Uploaded & processed", "key": key}
-
-
-def process_upload(file, user):
-    key = upload_file_to_s3(file, user)
-    enqueue_file(BUCKET_NAME, key, user)
-    return {"message": "Queued", "key": key}

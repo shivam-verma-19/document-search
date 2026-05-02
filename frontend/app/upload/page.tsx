@@ -1,20 +1,44 @@
 "use client";
-import axios from "axios";
 import { useState } from "react";
+import api from "../apiClient";
 
 export default function Upload() {
-  const [file, setFile] = useState<any>();
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
   const upload = async () => {
+    if (!file) {
+      setMessage("Please select a file");
+      return;
+    }
+
+    setLoading(true);
     const fd = new FormData();
     fd.append("file", file);
-    await axios.post("/api/upload", fd);
+
+    try {
+      const res = await api.post("/upload", fd);
+      setMessage(`Uploaded: ${res.data.key}`);
+      setFile(null);
+    } catch (err: any) {
+      setMessage(err.response?.data?.detail || "Upload failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div>
-      <input type="file" onChange={e=>setFile(e.target.files?.[0])}/>
-      <button onClick={upload}>Upload</button>
+    <div style={{ padding: 24 }}>
+      <input
+        type="file"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        disabled={loading}
+      />
+      <button onClick={upload} disabled={loading || !file}>
+        {loading ? "Uploading..." : "Upload"}
+      </button>
+      {message && <p>{message}</p>}
     </div>
   );
 }

@@ -89,3 +89,20 @@ resource "aws_iam_role_policy" "secrets_access" {
     }]
   })
 }
+
+resource "aws_iam_role" "api_lambda_role" {
+  name = "${var.project_name}-api-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role" "worker_lambda_role" {
+  name = "${var.project_name}-worker-role"
+  assume_role_policy = aws_iam_role.api_lambda_role.assume_role_policy
+}

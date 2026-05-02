@@ -4,17 +4,19 @@ import uuid
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 
-from backend.app.cache import get_cache, set_cache
-from backend.app.evaluation import store_eval
-from backend.app.hybrid import BM25Retriever
-from backend.app.metrics import log_metrics
-from backend.app.monitoring import push_metric
-from backend.app.reranker import rerank
-from backend.app.utils import build_prompt, get_secrets, log_event
+from .cache import get_cache, set_cache
+from .evaluation import store_eval
+from .hybrid import BM25Retriever
+from .metrics import log_metrics
+from .monitoring import push_metric
+from .reranker import rerank
+from .utils import build_prompt, log_event
 
-# =========================
-# LAZY INIT (CRITICAL FIX)
-# =========================
+_forbidden_query_patterns = {
+    "hack", "exploit", "malware", "ddos", "sql injection", "drop table"
+}
+
+
 _llm = None
 _vector_db = None
 _bm25 = None
@@ -49,10 +51,7 @@ def get_bm25():
     return _bm25
 
 
-# =========================
-# QUERY REWRITE
-# =========================
-def rewrite_query(query):
+def rewrite_query(query: str) -> str:
     if not query:
         return ""
 
@@ -64,116 +63,75 @@ def rewrite_query(query):
             )
             .content
         )
-
-        if isinstance(response, str):
-            return response.strip()
-
-        if isinstance(response, list):
-            return " ".join(map(str, response)).strip()
-
-        return query
-
+        return str(response).strip()
     except Exception:
         return query
 
 
-# =========================
-# HYBRID SEARCH
-# =========================
-def hybrid_search(query, k=5):
+def hybrid_search(query: str, k: int = 5):
     if not query:
         return []
 
+    semantic_docs = []
+    keyword_docs = []
     try:
-        vector_db = get_vector_db()
-        semantic_docs = vector_db.similarity_search(query, k=10) or []
+        semantic_docs = get_vector_db().similarity_search(query, k=10) or []
     except Exception:
-        semantic_docs = []
+        pass
 
     try:
         bm25 = get_bm25()
         keyword_docs = bm25.search(query, k=10) if bm25 else []
     except Exception:
-        keyword_docs = []
-
-    if not semantic_docs and not keyword_docs:
-        return []
+        pass
 
     seen = set()
     combined = []
-
     for doc in semantic_docs + keyword_docs:
         content = getattr(doc, "page_content", None)
-        if not content:
-            continue
-
-        if content not in seen:
+        if content and content not in seen:
             combined.append(doc)
             seen.add(content)
 
     return combined[:k]
 
 
-# =========================
-# MAIN FUNCTION
-# =========================
-def ask_question(query):
+def ask_question(query: str):
+    lower = query.lower()
+    if any(pattern in lower for pattern in _forbidden_query_patterns):
+        return "Query not allowed"
+
     if not query:
         return ""
 
     request_id = str(uuid.uuid4())
     start_time = time.time()
-
     print(f"[{request_id}] Query: {query}")
 
-    # =========================
-    # CACHE
-    # =========================
     cached = get_cache(query)
     if cached:
         latency = int((time.time() - start_time) * 1000)
-
         push_metric("CacheHit", 1)
         push_metric("Latency", latency)
-
         log_metrics(query, latency, "cache")
         log_event("query", "cache_hit", latency)
-
         return cached
 
-    # =========================
-    # QUERY REWRITE
-    # =========================
     rewritten_query = rewrite_query(query)
-
-    # =========================
-    # RETRIEVAL
-    # =========================
     docs = hybrid_search(rewritten_query, k=5)
 
-    # =========================
-    # RERANK
-    # =========================
     try:
         docs = rerank(rewritten_query, docs)
     except Exception:
-        docs = docs or []
+        pass
 
-    # =========================
-    # FALLBACK
-    # =========================
     if not docs or len(docs) < 2:
         push_metric("LLMFallback", 1)
-
         ans = None
         for _ in range(2):
             try:
                 response = get_llm().invoke(query).content
-
-                if isinstance(response, str):
-                    ans = response
-                else:
-                    ans = " ".join(map(str, response))
+                ans = str(response)
                 break
             except Exception as e:
                 print(f"[{request_id}] Retry error: {e}")
@@ -181,33 +139,22 @@ def ask_question(query):
         if ans is None:
             ans = "Error generating response."
 
-        latency = int((time.time() - start_time) * 1000)
-
-        # ✅ FIXED: return string (not tuple)
         final_answer = (
-            "There is no info in the context about this query. Switching to LLM\n" + ans
+            "There is no info in the context about this query. Switching to LLM\n"
+            + ans
         )
-
+        latency = int((time.time() - start_time) * 1000)
         set_cache(query, final_answer)
-
         push_metric("Latency", latency)
         log_metrics(query, latency, "llm")
         log_event("query", "llm_fallback", latency)
-
         return final_answer
 
-    # =========================
-    # CONTEXT
-    # =========================
     context = "\n".join(
         [d.page_content for d in docs if getattr(d, "page_content", None)]
     )
-
     prompt = build_prompt(context, query)
 
-    # =========================
-    # LLM CALL
-    # =========================
     ans = None
     for _ in range(2):
         try:
@@ -219,35 +166,21 @@ def ask_question(query):
     if ans is None:
         ans = "Error generating response."
 
-    # =========================
-    # METRICS
-    # =========================
     latency = int((time.time() - start_time) * 1000)
-
     push_metric("Latency", latency)
     store_eval(query, latency, 0)
-
     log_metrics(query, latency, "rag")
     log_event("query", "success", latency)
-
-    # =========================
-    # CACHE STORE
-    # =========================
     set_cache(query, ans)
-
     return ans
 
 
-# =========================
-# SUMMARIZATION
-# =========================
-def summarize_doc(doc_id):
+def summarize_doc(doc_id: str):
     if not doc_id:
         return ""
 
     try:
-        vector_db = get_vector_db()
-        docs = vector_db.similarity_search(doc_id, k=10) or []
+        docs = get_vector_db().similarity_search(doc_id, k=10) or []
     except Exception:
         docs = []
 
