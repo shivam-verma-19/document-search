@@ -35,7 +35,7 @@ def _build_client(monkeypatch):
     monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
     monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
     monkeypatch.setattr(
-        "backend.app.ingest.upload_file_to_s3", lambda file, user: "mocked-key"
+        "backend.app.ingest.upload_file_to_S3", lambda file, user: "mocked-key"
     )
     monkeypatch.setattr(
         "backend.app.metrics.get_metrics", lambda: [{"id": "1", "latency": 100}]
@@ -45,7 +45,7 @@ def _build_client(monkeypatch):
 
     importlib.reload(ingest_mod)
     monkeypatch.setattr(
-        "backend.app.ingest.enqueue_file", lambda bucket, key, user: None
+        "backend.app.ingest.enqueue_file", lambda key, user: None
     )
 
     import backend.app.main as main_mod
@@ -84,7 +84,7 @@ class TestUpload:
             files={"file": ("test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
         )
         assert r.status_code == 200
-        assert r.json() == {"status": "queued"}
+        assert r.json() == {"message": "queued"}
 
     def test_missing_file_returns_422(self, client):
         assert client.post("/upload").status_code == 422
@@ -127,7 +127,7 @@ class TestAsk:
 
         importlib.reload(ingest_mod)
         monkeypatch.setattr(
-            "backend.app.ingest.enqueue_file", lambda bucket, key, user: None
+            "backend.app.ingest.enqueue_file", lambda key, user: None
         )
 
         import backend.app.main as main_mod

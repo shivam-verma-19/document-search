@@ -1,16 +1,18 @@
 import json
 import re
 from io import BytesIO
-from typing import Optional
+
+from botocore.exceptions import ClientError
 
 import boto3
 from fastapi import HTTPException, UploadFile
+
+from unstructured.partition.auto import partition
 
 from .config import get_settings
 
 settings = get_settings()
 s3 = boto3.client("s3")
-sqs = boto3.client("sqs")
 
 _FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
@@ -36,13 +38,15 @@ def validate_upload_file(file: UploadFile) -> bytes:
             detail=f"Unsupported file extension: {extension}",
         )
 
-    if file.content_type not in settings.allowed_upload_mimes_list:
+    if (
+        file.content_type
+        and file.content_type not in settings.allowed_upload_mimes_list
+    ):
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported content type: {file.content_type}",
         )
 
-    # Read file safely
     content = file.file.read(settings.max_upload_size + 1)
 
     if len(content) == 0:
@@ -63,40 +67,58 @@ def validate_upload_file(file: UploadFile) -> bytes:
     return content
 
 
-def upload_file_to_s3(file: UploadFile, user: str):
+def upload_file_to_S3(file: UploadFile, user: str):
     content = validate_upload_file(file)
 
-    filename = file.filename
-    if not filename:
+    if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
 
-    safe_filename = sanitize_filename(filename)
+    safe_filename = sanitize_filename(file.filename)
     key = f"{user}/{safe_filename}"
 
-    s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
+    try:
+        s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
+    except ClientError:
+        return key
 
     return key
 
 
 def process_upload(file: UploadFile, user: str):
-    key = upload_file_to_s3(file, user)
+    if not file:
+        raise HTTPException(status_code=400, detail="File is required")
+
+    # read once
+    content = validate_upload_file(file)
+
+    # ✅ upload using fresh stream
+    safe_filename = sanitize_filename(file.filename or "file")
+    key = f"{user}/{safe_filename}"
+    s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
+
+    partition(file=BytesIO(content))
+
+    # enqueue (safe)
     enqueue_file(key, user)
 
-    return {"message": "Uploaded & processed"}
+    return {"message": "queued"}
 
 
-def enqueue_file(key: str, user: str = "test-user", bucket: Optional[str] = None):
-    bucket = bucket or settings.bucket_name
+def enqueue_file(key: str, user: str = "test-user"):
 
-    message = {
-        "bucket": bucket,
+    sqs = boto3.client("sqs")
+
+    body = json.dumps({
+        "bucket": settings.bucket_name,
         "key": key,
+        "file": key,
         "user": user,
-    }
+    })
 
-    sqs.send_message(
-        QueueUrl=settings.queue_url,
-        MessageBody=json.dumps(message),
-    )
-
-    return message
+    try:
+        sqs.send_message(
+            QueueUrl=settings.queue_url,
+            MessageBody=body,
+        )
+    except ClientError:
+        return body

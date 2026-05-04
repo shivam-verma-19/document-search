@@ -6,9 +6,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .auth import verify_cognito_token, verify_token
+from .auth import optional_auth, verify_cognito_token, verify_token
 from .config import get_settings
-from .ingest import enqueue_file, upload_file_to_s3
+import backend.app.ingest as ingest
 from .metrics import get_metrics
 from .rag import ask_question, summarize_doc
 
@@ -41,12 +41,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
                 user = verify_token(token)
 
-                request.state.user_id = (
-                    user.get("sub")
-                    or user.get("email")
-                    or user.get("user_id")
-                    or "anonymous"
-                )
+                if isinstance(user, str):
+                    request.state.user_id = user
+                else:
+                    request.state.user_id = (
+                        user.get("sub")
+                        or user.get("email")
+                        or user.get("user_id")
+                        or "anonymous"
+                    )
             else:
                 request.state.user_id = "anonymous"
 
@@ -85,20 +88,25 @@ def root():
 @limiter.limit("5/minute")
 @app.post("/upload")
 def upload(
+    request: Request,
     file: UploadFile,
-    user: dict = Depends(verify_cognito_token),
-):
-    user_id = user.get("sub") or user.get("email") or "anonymous"
+    user = Depends(optional_auth),
+        ):
+    if isinstance(user, str):
+        user_id = user
+    else:
+        user_id = user.get("sub") or user.get("email") or "anonymous"
 
-    key = upload_file_to_s3(file, user_id)
-    enqueue_file(key, user_id, settings.bucket_name)
+    key = ingest.upload_file_to_S3(file, user_id)
+    ingest.enqueue_file(key, user_id)
 
-    return {"status": "queued"}
+    return {"message": "queued"}
 
 
 @limiter.limit("10/minute")
 @app.get("/ask")
 def ask(
+    request: Request,
     q: str = Query(..., min_length=1, max_length=500),
     user: dict = Depends(verify_cognito_token),
 ):
@@ -108,6 +116,7 @@ def ask(
 @limiter.limit("20/minute")
 @app.get("/summary")
 def summary(
+    request: Request,
     doc_id: str = Query(..., min_length=1, max_length=100),
     user: dict = Depends(verify_cognito_token),
 ):
@@ -116,7 +125,7 @@ def summary(
 
 @limiter.limit("30/minute")
 @app.get("/metrics")
-def metrics(user: dict = Depends(verify_cognito_token)):
+def metrics(request: Request, user: dict = Depends(verify_cognito_token)):
     return get_metrics()
 
 

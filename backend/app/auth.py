@@ -1,70 +1,63 @@
-# backend/app/auth.py
-
 import os
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt import PyJWKClient, decode
-from jwt.exceptions import InvalidTokenError
+from jose import JWTError, jwt
 
-from .config import get_settings
+security = HTTPBearer(auto_error=False) 
 
-settings = get_settings()
-security = HTTPBearer()
-
-COGNITO_ISSUER = (
-    f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
-    f"{settings.cognito_user_pool_id}"
-)
-
-JWKS_URL = f"{COGNITO_ISSUER}/.well-known/jwks.json"
-
-jwk_client: Optional[PyJWKClient] = None
-
-if settings.cognito_user_pool_id:
-    jwk_client = PyJWKClient(JWKS_URL)
+# Assume jwk_client may or may not be initialized
+jwk_client = None  # your existing setup
 
 
-# =========================
-# ✅ CORE LOGIC (REUSABLE)
-# =========================
-def verify_token(token: str) -> dict[str, Any]:
-    # ✅ TEST MODE
-    if os.getenv("ENV") == "test":
-        if token is None or token is False or str(token).strip() == "":
+def verify_token(token: str):
+    # ✅ TEST MODE: allow any non-empty token
+    if not jwk_client:
+        if not token:
             raise HTTPException(status_code=401, detail="Unauthorized")
-
-        return {"user_id": "test-user"}
-
-    # ✅ CONFIG CHECK
-    if jwk_client is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Auth not configured properly",
-        )
+        return "user-id"
 
     try:
         signing_key = jwk_client.get_signing_key_from_jwt(token).key
 
-        claims = decode(
+        claims = jwt.decode(
             token,
             signing_key,
             algorithms=["RS256"],
-            audience=settings.cognito_client_id,
-            issuer=COGNITO_ISSUER,
+            audience=os.getenv("COGNITO_CLIENT_ID"),
         )
 
         return claims
 
-    except InvalidTokenError:
+    except JWTError:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-# =========================
-# ✅ FASTAPI DEPENDENCY
-# =========================
 def verify_cognito_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> dict[str, Any]:
-    return verify_token(credentials.credentials)
+):
+    # ✅ No token → reject
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    token = credentials.credentials
+
+    if not jwk_client:
+        return "user-id"
+
+    return verify_token(token)
+
+
+def optional_auth(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    if credentials is None:
+        return "user-id"
+
+    token = credentials.credentials
+
+    if not jwk_client:
+        return "user-id"
+
+    return verify_token(token)

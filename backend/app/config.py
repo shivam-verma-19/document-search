@@ -1,42 +1,50 @@
-from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+import json
 from typing import List
-
-from pydantic_settings import BaseSettings
+from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    aws_region: str = "ap-south-1"
-
-    bucket_name: str = "rag-upload-bucket"
+    aws_region: str = ""
     queue_url: str = ""
+    bucket_name: str = ""
 
     cognito_user_pool_id: str = ""
     cognito_client_id: str = ""
 
-    # ✅ Accept as string first
-    allowed_upload_extensions: str = "pdf,txt,docx"
-    allowed_upload_mimes: str = "application/pdf,text/plain"
-    forbidden_upload_patterns: str = "<script>,DROP TABLE"
+    max_upload_size: int = 10485760
 
-    max_upload_size: int = 5 * 1024 * 1024
+    allowed_upload_extensions: str = ""
+    allowed_upload_mimes: str = ""
+    forbidden_upload_patterns: str = ""
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False
+    )
 
-    # ✅ Convert to list dynamically
+    def _parse_list(self, value: str) -> List[str]:
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(x).lower() for x in parsed]
+        except Exception:
+            pass
+        return [x.strip().lower() for x in value.split(",")]
+
     @property
     def allowed_upload_extensions_list(self) -> List[str]:
-        return [x.strip().lower() for x in self.allowed_upload_extensions.split(",")]
+        return self._parse_list(self.allowed_upload_extensions)
 
     @property
     def allowed_upload_mimes_list(self) -> List[str]:
-        return [x.strip() for x in self.allowed_upload_mimes.split(",")]
+        return self._parse_list(self.allowed_upload_mimes)
 
     @property
     def forbidden_upload_patterns_list(self) -> List[str]:
-        return [x.strip().lower() for x in self.forbidden_upload_patterns.split(",")]
-
+        return self._parse_list(self.forbidden_upload_patterns)
+    
 
 @lru_cache
-def get_settings():
+def get_settings() -> Settings:
     return Settings()
