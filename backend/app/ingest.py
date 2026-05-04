@@ -2,11 +2,9 @@ import json
 import re
 from io import BytesIO
 
-from botocore.exceptions import ClientError
-
 import boto3
+from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile
-
 from unstructured.partition.auto import partition
 
 from .config import get_settings
@@ -108,12 +106,14 @@ def enqueue_file(key: str, user: str = "test-user"):
 
     sqs = boto3.client("sqs")
 
-    body = json.dumps({
-        "bucket": settings.bucket_name,
-        "key": key,
-        "file": key,
-        "user": user,
-    })
+    body = json.dumps(
+        {
+            "bucket": settings.bucket_name,
+            "key": key,
+            "file": key,
+            "user": user,
+        }
+    )
 
     try:
         sqs.send_message(

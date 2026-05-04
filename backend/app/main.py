@@ -6,9 +6,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+import backend.app.ingest as ingest
+
 from .auth import optional_auth, verify_cognito_token, verify_token
 from .config import get_settings
-import backend.app.ingest as ingest
 from .metrics import get_metrics
 from .rag import ask_question, summarize_doc
 
@@ -90,8 +91,8 @@ def root():
 def upload(
     request: Request,
     file: UploadFile,
-    user = Depends(optional_auth),
-        ):
+    user=Depends(optional_auth),
+):
     if isinstance(user, str):
         user_id = user
     else:

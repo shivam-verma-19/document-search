@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
-security = HTTPBearer(auto_error=False) 
+security = HTTPBearer(auto_error=False)
 
 # Assume jwk_client may or may not be initialized
 jwk_client = None  # your existing setup

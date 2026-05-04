@@ -1,7 +1,8 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
-from typing import List
 from functools import lru_cache
+from typing import List
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -18,10 +19,7 @@ class Settings(BaseSettings):
     allowed_upload_mimes: str = ""
     forbidden_upload_patterns: str = ""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        case_sensitive=False
-    )
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
     def _parse_list(self, value: str) -> List[str]:
         try:
@@ -43,7 +41,7 @@ class Settings(BaseSettings):
     @property
     def forbidden_upload_patterns_list(self) -> List[str]:
         return self._parse_list(self.forbidden_upload_patterns)
-    
+
 
 @lru_cache
 def get_settings() -> Settings:

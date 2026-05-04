@@ -44,9 +44,7 @@ def _build_client(monkeypatch):
     import backend.app.ingest as ingest_mod
 
     importlib.reload(ingest_mod)
-    monkeypatch.setattr(
-        "backend.app.ingest.enqueue_file", lambda key, user: None
-    )
+    monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda key, user: None)
 
     import backend.app.main as main_mod
 
@@ -126,9 +124,7 @@ class TestAsk:
         import backend.app.ingest as ingest_mod
 
         importlib.reload(ingest_mod)
-        monkeypatch.setattr(
-            "backend.app.ingest.enqueue_file", lambda key, user: None
-        )
+        monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda key, user: None)
 
         import backend.app.main as main_mod
 
