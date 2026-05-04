@@ -1,6 +1,7 @@
 import json
 import re
 from io import BytesIO
+from typing import Optional
 
 import boto3
 from fastapi import HTTPException, UploadFile
@@ -77,8 +78,25 @@ def upload_file_to_s3(file: UploadFile, user: str):
     return key
 
 
-def enqueue_file(bucket: str, key: str, user: str):
+def process_upload(file: UploadFile, user: str):
+    key = upload_file_to_s3(file, user)
+    enqueue_file(key, user)
+
+    return {"message": "Uploaded & processed"}
+
+
+def enqueue_file(key: str, user: str = "test-user", bucket: Optional[str] = None):
+    bucket = bucket or settings.bucket_name
+
+    message = {
+        "bucket": bucket,
+        "key": key,
+        "user": user,
+    }
+
     sqs.send_message(
         QueueUrl=settings.queue_url,
-        MessageBody=json.dumps({"bucket": bucket, "key": key, "user": user}),
+        MessageBody=json.dumps(message),
     )
+
+    return message

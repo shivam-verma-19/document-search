@@ -29,11 +29,12 @@ if settings.cognito_user_pool_id:
 # =========================
 # ✅ CORE LOGIC (REUSABLE)
 # =========================
-def verify_token_logic(token: str) -> dict[str, Any]:
+def verify_token(token: str) -> dict[str, Any]:
     # ✅ TEST MODE
     if os.getenv("ENV") == "test":
-        if not token:
+        if token is None or token is False or str(token).strip() == "":
             raise HTTPException(status_code=401, detail="Unauthorized")
+
         return {"user_id": "test-user"}
 
     # ✅ CONFIG CHECK
@@ -66,4 +67,4 @@ def verify_token_logic(token: str) -> dict[str, Any]:
 def verify_cognito_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict[str, Any]:
-    return verify_token_logic(credentials.credentials)
+    return verify_token(credentials.credentials)

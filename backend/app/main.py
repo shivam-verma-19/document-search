@@ -6,7 +6,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .auth import verify_cognito_token, verify_token_logic
+from .auth import verify_cognito_token, verify_token
 from .config import get_settings
 from .ingest import enqueue_file, upload_file_to_s3
 from .metrics import get_metrics
@@ -39,7 +39,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if auth_header and auth_header.startswith("Bearer "):
                 token = auth_header.split(" ")[1]
 
-                user = verify_token_logic(token)
+                user = verify_token(token)
 
                 request.state.user_id = (
                     user.get("sub")
@@ -51,8 +51,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user_id = "anonymous"
 
         except Exception:
-            # ⚠️ fallback bucket
-            request.state.user_id = "invalid-user"
+            request.state.user_id = "anonymous"
 
         return await call_next(request)
 
@@ -92,9 +91,9 @@ def upload(
     user_id = user.get("sub") or user.get("email") or "anonymous"
 
     key = upload_file_to_s3(file, user_id)
-    enqueue_file(settings.bucket_name, key, user_id)
+    enqueue_file(key, user_id, settings.bucket_name)
 
-    return {"status": "queued", "key": key}
+    return {"status": "queued"}
 
 
 @limiter.limit("10/minute")
