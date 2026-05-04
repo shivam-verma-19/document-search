@@ -16,3 +16,4 @@ moto
 python-multipart
 mangum
 PyJWT
+slowapi

@@ -28,6 +28,7 @@ def validate_upload_file(file: UploadFile) -> bytes:
         raise HTTPException(status_code=400, detail="Invalid file extension")
 
     extension = file.filename.rsplit(".", 1)[-1].lower()
+
     if extension not in settings.allowed_upload_extensions:
         raise HTTPException(
             status_code=400,
@@ -40,7 +41,9 @@ def validate_upload_file(file: UploadFile) -> bytes:
             detail=f"Unsupported content type: {file.content_type}",
         )
 
+    # Read file safely
     content = file.file.read(settings.max_upload_size + 1)
+
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
@@ -50,8 +53,9 @@ def validate_upload_file(file: UploadFile) -> bytes:
             detail=f"File exceeds max size of {settings.max_upload_size} bytes",
         )
 
-    lower = content.lower()
-    if any(pattern in lower for pattern in settings.forbidden_upload_patterns):
+    text = content.decode("utf-8", errors="ignore").lower()
+
+    if any(pattern in text for pattern in settings.forbidden_upload_patterns):
         raise HTTPException(status_code=400, detail="Suspicious content detected")
 
     file.file.seek(0)
@@ -60,10 +64,16 @@ def validate_upload_file(file: UploadFile) -> bytes:
 
 def upload_file_to_s3(file: UploadFile, user: str):
     content = validate_upload_file(file)
-    safe_filename = sanitize_filename(file.filename)
+
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    safe_filename = sanitize_filename(filename)
     key = f"{user}/{safe_filename}"
 
     s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
+
     return key
 
 
