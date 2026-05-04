@@ -1,57 +1,42 @@
-# backend/app/config.py
-
 from functools import lru_cache
-from typing import Set
+from typing import List
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        case_sensitive=False,
-    )
+    aws_region: str = "ap-south-1"
 
-    aws_region: str = Field(default="us-east-1")
-    queue_url: str = Field(default="")
-    bucket_name: str = Field(default="rag-pipeline-upload-bucket")
+    bucket_name: str = "rag-upload-bucket"
+    queue_url: str = ""
 
-    cognito_user_pool_id: str = Field(default="")
-    cognito_client_id: str = Field(default="")
+    cognito_user_pool_id: str = ""
+    cognito_client_id: str = ""
 
-    max_upload_size: int = Field(default=10 * 1024 * 1024)
+    # ✅ Accept as string first
+    allowed_upload_extensions: str = "pdf,txt,docx"
+    allowed_upload_mimes: str = "application/pdf,text/plain"
+    forbidden_upload_patterns: str = "<script>,DROP TABLE"
 
-    # ✅ FIXED
-    allowed_upload_extensions: Set[str] = Field(default={"pdf", "txt", "docx"})
-    allowed_upload_mimes: Set[str] = Field(
-        default={
-            "application/pdf",
-            "text/plain",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        }
-    )
+    max_upload_size: int = 5 * 1024 * 1024
 
-    forbidden_upload_patterns: Set[str] = Field(
-        default={"<script>", "javascript:", "base64,"}
-    )
+    class Config:
+        env_file = ".env"
 
-    # ✅ ADD THIS (CRITICAL)
-    @field_validator("allowed_upload_extensions", mode="before")
-    @classmethod
-    def parse_extensions(cls, v):
-        if isinstance(v, str):
-            return {x.strip() for x in v.split(",")}
-        return v
+    # ✅ Convert to list dynamically
+    @property
+    def allowed_upload_extensions_list(self) -> List[str]:
+        return [x.strip().lower() for x in self.allowed_upload_extensions.split(",")]
 
-    @field_validator("allowed_upload_mimes", mode="before")
-    @classmethod
-    def parse_mimes(cls, v):
-        if isinstance(v, str):
-            return {x.strip() for x in v.split(",")}
-        return v
+    @property
+    def allowed_upload_mimes_list(self) -> List[str]:
+        return [x.strip() for x in self.allowed_upload_mimes.split(",")]
+
+    @property
+    def forbidden_upload_patterns_list(self) -> List[str]:
+        return [x.strip().lower() for x in self.forbidden_upload_patterns.split(",")]
 
 
-@lru_cache()
-def get_settings() -> Settings:
+@lru_cache
+def get_settings():
     return Settings()

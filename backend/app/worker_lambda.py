@@ -1,16 +1,18 @@
 import json
 
-from .ingest import upload_file_to_s3
+from .processor import process_file_from_s3
 
 
 def handler(event, context):
     results = []
+
     for record in event.get("Records", []):
         body = json.loads(record["body"])
+
         bucket = body["bucket"]
         key = body["key"]
-        user = body.get("user")
 
-        results.append(upload_file_to_s3(key, user))
+        result = process_file_from_s3(bucket, key)
+        results.append(result)
 
     return {"processed": len(results)}

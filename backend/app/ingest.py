@@ -29,13 +29,13 @@ def validate_upload_file(file: UploadFile) -> bytes:
 
     extension = file.filename.rsplit(".", 1)[-1].lower()
 
-    if extension not in settings.allowed_upload_extensions:
+    if extension not in settings.allowed_upload_extensions_list:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file extension: {extension}",
         )
 
-    if file.content_type not in settings.allowed_upload_mimes:
+    if file.content_type not in settings.allowed_upload_mimes_list:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported content type: {file.content_type}",
@@ -53,9 +53,9 @@ def validate_upload_file(file: UploadFile) -> bytes:
             detail=f"File exceeds max size of {settings.max_upload_size} bytes",
         )
 
-    text = content.decode("utf-8", errors="ignore").lower()
+    text = content.decode(errors="ignore").lower()
 
-    if any(pattern in text for pattern in settings.forbidden_upload_patterns):
+    if any(pattern in text for pattern in settings.forbidden_upload_patterns_list):
         raise HTTPException(status_code=400, detail="Suspicious content detected")
 
     file.file.seek(0)
