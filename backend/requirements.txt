@@ -17,3 +17,5 @@ python-multipart
 mangum
 PyJWT
 slowapi
+python-jose
+pydantic-settings
