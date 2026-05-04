@@ -22,13 +22,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
     def _parse_list(self, value: str) -> List[str]:
+        if not value or not value.strip():
+            return []
         try:
             parsed = json.loads(value)
             if isinstance(parsed, list):
-                return [str(x).lower() for x in parsed]
+                return [str(x).lower() for x in parsed if x]
         except Exception:
             pass
-        return [x.strip().lower() for x in value.split(",")]
+        return [x.strip().lower() for x in value.split(",") if x.strip()]
 
     @property
     def allowed_upload_extensions_list(self) -> List[str]:

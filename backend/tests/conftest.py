@@ -6,6 +6,7 @@ LLM / embedding / vector-db calls are replaced by lightweight stubs so the
 tests run offline and deterministically.
 """
 
+import importlib
 import io
 import json
 import os
@@ -14,6 +15,7 @@ import uuid
 
 import boto3
 import pytest
+from fastapi.testclient import TestClient
 from moto import mock_aws
 
 # ---------------------------------------------------------------------------
@@ -32,6 +34,7 @@ os.environ.setdefault(
     "ALLOWED_UPLOAD_MIMES",
     "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword",
 )
+os.environ.setdefault("FORBIDDEN_UPLOAD_PATTERNS", "")
 
 
 # ---------------------------------------------------------------------------
@@ -139,3 +142,61 @@ def upload_file():
         file = io.BytesIO(b"fake pdf content for testing")
 
     return FakeUploadFile()
+
+
+@pytest.fixture()
+def app(monkeypatch):
+    """
+    Create a fresh FastAPI app with all external dependencies mocked.
+    """
+
+    # -------------------------
+    # Auth mocks
+    # -------------------------
+    monkeypatch.setattr("backend.app.auth.verify_token", lambda token=None: "user-id")
+    monkeypatch.setattr("backend.app.auth.verify_cognito_token", lambda: "user-id")
+    monkeypatch.setattr("backend.app.auth.optional_auth", lambda: "user-id")
+
+    # -------------------------
+    # RAG mocks
+    # -------------------------
+    monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
+    monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
+
+    # -------------------------
+    # Ingest mocks
+    # -------------------------
+    monkeypatch.setattr(
+        "backend.app.ingest.upload_file_to_S3",
+        lambda file, user: "mocked-key",
+    )
+    monkeypatch.setattr(
+        "backend.app.ingest.enqueue_file",
+        lambda key, user: None,
+    )
+
+    # -------------------------
+    # Metrics mocks
+    # -------------------------
+    monkeypatch.setattr(
+        "backend.app.metrics.get_metrics",
+        lambda: [{"id": "1", "latency": 100}],
+    )
+    import backend.app.main as main_mod
+
+    # IMPORTANT: reload app AFTER monkeypatching
+    importlib.reload(main_mod)
+
+    return main_mod.app
+
+
+@pytest.fixture()
+def client(app):
+    """
+    FIX: Proper TestClient lifecycle handling.
+    Prevents:
+    RuntimeError: Cannot send a request, as the client has been closed
+    """
+
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
