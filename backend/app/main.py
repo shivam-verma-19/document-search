@@ -1,14 +1,12 @@
 from fastapi import Depends, FastAPI, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from mangum import Mangum
-
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .auth import verify_cognito_token, verify_token_logic 
+from .auth import verify_cognito_token, verify_token_logic
 from .config import get_settings
 from .ingest import enqueue_file, upload_file_to_s3
 from .metrics import get_metrics
@@ -17,6 +15,7 @@ from .rag import ask_question, summarize_doc
 settings = get_settings()
 
 app = FastAPI()
+
 
 # =========================
 # ✅ USER-BASED KEY FUNCTION
