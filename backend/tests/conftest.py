@@ -27,6 +27,11 @@ os.environ.setdefault(
 )
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
+os.environ.setdefault("ALLOWED_UPLOAD_EXTENSIONS", "pdf,txt,docx,doc")
+os.environ.setdefault(
+    "ALLOWED_UPLOAD_MIMES",
+    "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword",
+)
 
 
 # ---------------------------------------------------------------------------
