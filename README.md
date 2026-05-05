@@ -72,7 +72,7 @@ cd rag-platform
 ```
 OPENAI_API_KEY=your_key
 PINECONE_API_KEY=your_key
-AWS_REGION=us-east-1
+AWS_REGION=ap-south-1
 ```
 
 ### 3. Run with Docker

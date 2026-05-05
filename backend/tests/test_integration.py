@@ -14,7 +14,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
@@ -32,7 +32,7 @@ def _doc(text):
 
 
 def _setup_aws():
-    db = boto3.resource("dynamodb", region_name="us-east-1")
+    db = boto3.resource("dynamodb", region_name="ap-south-1")
     for table_name, key in [
         ("rag-cache", "query"),
         ("rag-metrics", "id"),
@@ -44,7 +44,7 @@ def _setup_aws():
             AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
             BillingMode="PAY_PER_REQUEST",
         )
-    sm = boto3.client("secretsmanager", region_name="us-east-1")
+    sm = boto3.client("secretsmanager", region_name="ap-south-1")
     sm.create_secret(
         Name="rag-secrets",
         SecretString=json.dumps({"OPENAI_API_KEY": "sk-test"}),

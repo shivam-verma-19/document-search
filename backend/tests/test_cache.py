@@ -15,13 +15,13 @@ import boto3
 import pytest
 from moto import mock_aws
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 
 
 def _make_table():
-    db = boto3.resource("dynamodb", region_name="us-east-1")
+    db = boto3.resource("dynamodb", region_name="ap-south-1")
     db.create_table(
         TableName="rag-cache",
         KeySchema=[{"AttributeName": "query", "KeyType": "HASH"}],
