@@ -13,13 +13,13 @@ import boto3
 import pytest
 from moto import mock_aws
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 
 
 def _create_metrics_table():
-    db = boto3.resource("dynamodb", region_name="ap-south-1")
+    db = boto3.resource("dynamodb", region_name="us-east-1")
     db.create_table(
         TableName="rag-metrics",
         KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
@@ -29,7 +29,7 @@ def _create_metrics_table():
 
 
 def _create_eval_table():
-    db = boto3.resource("dynamodb", region_name="ap-south-1")
+    db = boto3.resource("dynamodb", region_name="us-east-1")
     db.create_table(
         TableName="rag-eval",
         KeySchema=[{"AttributeName": "query", "KeyType": "HASH"}],
@@ -113,7 +113,7 @@ class TestStoreEval:
 
         store_eval("test query", 200, 1)
 
-        db = boto3.resource("dynamodb", region_name="ap-south-1")
+        db = boto3.resource("dynamodb", region_name="us-east-1")
         table = db.Table("rag-eval")
         resp = table.get_item(Key={"query": "test query"})
         item = resp["Item"]
@@ -129,7 +129,7 @@ class TestStoreEval:
         store_eval("q", 100, 0)
         store_eval("q", 999, 1)
 
-        db = boto3.resource("dynamodb", region_name="ap-south-1")
+        db = boto3.resource("dynamodb", region_name="us-east-1")
         table = db.Table("rag-eval")
         resp = table.get_item(Key={"query": "q"})
         assert int(resp["Item"]["latency"]) == 999

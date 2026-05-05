@@ -15,11 +15,11 @@ import unittest.mock as mock
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
-os.environ.setdefault("QUEUE_URL", "https://sqs.ap-south-1.amazonaws.com/123/q")
+os.environ.setdefault("QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/q")
 
 # Install stubs BEFORE any backend import
 from . import _stubs

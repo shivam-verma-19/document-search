@@ -18,7 +18,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
@@ -46,7 +46,7 @@ class _FakeUpload:
 class TestSaveToS3:
     @mock_aws
     def test_happy_path_returns_key(self):
-        s3 = boto3.client("s3", region_name="ap-south-1")
+        s3 = boto3.client("s3", region_name="us-east-1")
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
 
         from backend.app.utils import save_to_s3
@@ -57,7 +57,7 @@ class TestSaveToS3:
 
     @mock_aws
     def test_file_actually_uploaded(self):
-        s3 = boto3.client("s3", region_name="ap-south-1")
+        s3 = boto3.client("s3", region_name="us-east-1")
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
 
         from backend.app.utils import save_to_s3
@@ -79,7 +79,7 @@ class TestSaveToS3:
 
     @mock_aws
     def test_empty_file_uploaded(self):
-        s3 = boto3.client("s3", region_name="ap-south-1")
+        s3 = boto3.client("s3", region_name="us-east-1")
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
 
         from backend.app.utils import save_to_s3
@@ -96,7 +96,7 @@ class TestSaveToS3:
 class TestGetSecrets:
     @mock_aws
     def test_returns_parsed_dict(self):
-        sm = boto3.client("secretsmanager", region_name="ap-south-1")
+        sm = boto3.client("secretsmanager", region_name="us-east-1")
         sm.create_secret(
             Name="rag-secrets",
             SecretString=json.dumps({"OPENAI_API_KEY": "sk-test"}),

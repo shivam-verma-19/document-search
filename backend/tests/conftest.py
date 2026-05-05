@@ -21,11 +21,11 @@ from moto import mock_aws
 # ---------------------------------------------------------------------------
 # Environment variables (must be set BEFORE any app module is imported)
 # ---------------------------------------------------------------------------
-os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault(
-    "QUEUE_URL", "https://sqs.ap-south-1.amazonaws.com/123456789012/test-queue"
+    "QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue"
 )
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
@@ -60,13 +60,13 @@ def aws_credentials():
     """Fake credentials so moto never touches real AWS."""
     os.environ["AWS_ACCESS_KEY_ID"] = "test"
     os.environ["AWS_SECRET_ACCESS_KEY"] = "test"
-    os.environ["AWS_DEFAULT_REGION"] = "ap-south-1"
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
 
 @pytest.fixture()
 def s3_bucket(aws_credentials):
     with mock_aws():
-        s3 = boto3.client("s3", region_name="ap-south-1")
+        s3 = boto3.client("s3", region_name="us-east-1")
         s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
         yield s3
 
@@ -74,7 +74,7 @@ def s3_bucket(aws_credentials):
 @pytest.fixture()
 def dynamodb_tables(aws_credentials):
     with mock_aws():
-        db = boto3.resource("dynamodb", region_name="ap-south-1")
+        db = boto3.resource("dynamodb", region_name="us-east-1")
 
         for table_name, key in [
             ("rag-cache", "query"),
@@ -93,7 +93,7 @@ def dynamodb_tables(aws_credentials):
 @pytest.fixture()
 def sqs_queue(aws_credentials):
     with mock_aws():
-        sqs = boto3.client("sqs", region_name="ap-south-1")
+        sqs = boto3.client("sqs", region_name="us-east-1")
         resp = sqs.create_queue(QueueName="test-queue")
         os.environ["QUEUE_URL"] = resp["QueueUrl"]
         yield sqs, resp["QueueUrl"]
@@ -102,7 +102,7 @@ def sqs_queue(aws_credentials):
 @pytest.fixture()
 def secretsmanager_secret(aws_credentials):
     with mock_aws():
-        sm = boto3.client("secretsmanager", region_name="ap-south-1")
+        sm = boto3.client("secretsmanager", region_name="us-east-1")
         sm.create_secret(
             Name="rag-secrets",
             SecretString=json.dumps(

@@ -16,7 +16,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 
@@ -55,14 +55,14 @@ class _FakeUpload:
 
 
 def _create_sqs_queue():
-    sqs = boto3.client("sqs", region_name="ap-south-1")
+    sqs = boto3.client("sqs", region_name="us-east-1")
     resp = sqs.create_queue(QueueName="test-queue")
     os.environ["QUEUE_URL"] = resp["QueueUrl"]
     return sqs, resp["QueueUrl"]
 
 
 def _create_s3_bucket(name="rag-pipeline-upload-bucket"):
-    s3 = boto3.client("s3", region_name="ap-south-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket=name)
     return s3
 
