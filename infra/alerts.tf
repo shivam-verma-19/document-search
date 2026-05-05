@@ -19,7 +19,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   threshold           = 1
 
   dimensions = {
-    FunctionName = aws_lambda_function.rag_lambda.function_name
+    FunctionName = aws_lambda_function.rag_api.function_name
   }
 
   alarm_actions = [aws_sns_topic.alerts.arn]
@@ -36,7 +36,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_latency" {
   threshold           = 5000
 
   dimensions = {
-    FunctionName = aws_lambda_function.rag_lambda.function_name
+    FunctionName = aws_lambda_function.rag_api.function_name
   }
 
   alarm_actions = [aws_sns_topic.alerts.arn]

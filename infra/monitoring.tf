@@ -13,7 +13,7 @@ resource "aws_cloudwatch_dashboard" "rag_dashboard" {
         properties = {
           title = "Lambda Invocations"
           metrics = [
-            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.rag_lambda.function_name]
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.rag_api.function_name]
           ]
           region = var.aws_region
         }
@@ -28,7 +28,7 @@ resource "aws_cloudwatch_dashboard" "rag_dashboard" {
         properties = {
           title = "Lambda Errors"
           metrics = [
-            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.rag_lambda.function_name]
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.rag_api.function_name]
           ]
           region = var.aws_region
         }

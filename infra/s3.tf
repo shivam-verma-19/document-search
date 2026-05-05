@@ -1,11 +1,14 @@
 resource "aws_s3_bucket" "uploads" {
   bucket = "rag-pipeline-upload-bucket"
+}
 
-  server_side_encryption_configuration {
-    rule {
-      apply_server_side_encryption_by_default {
-        sse_algorithm = "AES256"
-      }
+# Server-side encryption configuration (separate resource to avoid deprecation warning)
+resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
     }
   }
 }
