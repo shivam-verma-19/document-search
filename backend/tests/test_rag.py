@@ -338,7 +338,7 @@ class TestAskQuestion:
     def test_fallback_path_writes_cache(self, monkeypatch):
         rag = _load_rag(
             monkeypatch,
-            search_results=[], 
+            search_results=[],
             llm_answer="fallback answer",
         )
         written = {}
