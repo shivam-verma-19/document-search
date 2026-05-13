@@ -315,6 +315,67 @@ class TestAskQuestion:
 
         assert len(written) > 0
 
+    def test_forbidden_query_is_case_insensitive(self, monkeypatch):
+        rag = _load_rag(monkeypatch)
+
+        result = rag.ask_question("HACK the system")
+
+        assert result == "Query not allowed"
+
+    def test_retry_exhausted_returns_error_string(self, monkeypatch):
+        """LLM always raises and docs < 2 → error string, not an exception."""
+        rag = _load_rag(
+            monkeypatch,
+            search_results=[],  # triggers fallback path (docs < 2)
+            llm_answer="irrelevant",
+        )
+        cast(mock.MagicMock, rag._llm.invoke).side_effect = Exception("LLM down")
+
+        result = rag.ask_question("what is X?")
+
+        assert "Error" in str(result)
+
+    def test_fallback_path_writes_cache(self, monkeypatch):
+        rag = _load_rag(
+            monkeypatch,
+            search_results=[], 
+            llm_answer="fallback answer",
+        )
+        written = {}
+        monkeypatch.setattr(
+            "backend.app.cache.set_cache",
+            lambda q, a: written.update({q: a}),
+        )
+
+        rag.ask_question("any question")
+        assert len(written) == 1
+
+    def test_exactly_one_doc_triggers_fallback_not_rag(self, monkeypatch):
+        """Boundary: 1 doc < 2 threshold → fallback prefix appears in answer."""
+        rag = _load_rag(
+            monkeypatch,
+            search_results=["single chunk"],
+            rerank_passthrough=True,
+            llm_answer="llm says hi",
+        )
+
+        result = rag.ask_question("question?")
+
+        assert "Switching to LLM" in str(result)
+
+    def test_two_docs_takes_rag_path_not_fallback(self, monkeypatch):
+        """Boundary: 2 docs >= 2 threshold → RAG path, no fallback prefix."""
+        rag = _load_rag(
+            monkeypatch,
+            search_results=["chunk a", "chunk b"],
+            rerank_passthrough=True,
+            llm_answer="rag answer",
+        )
+
+        result = rag.ask_question("question?")
+
+        assert "Switching to LLM" not in str(result)
+
 
 # =========================================================
 # summarize_doc

@@ -15,7 +15,7 @@ from typing import cast
 
 import boto3
 import pytest
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
 from moto import mock_aws
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -147,3 +147,98 @@ class TestProcessUpload:
         )
         obj = s3.get_object(Bucket="rag-pipeline-upload-bucket", Key="alice/my.pdf")
         assert obj["Body"].read() == b"pdf-content"
+
+
+# ---------------------------------------------------------------------------
+# sanitize_filename
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeFilename:
+    def _sanitize(self, name):
+        from backend.app.ingest import sanitize_filename
+
+        return sanitize_filename(name)
+
+    def test_plain_name_unchanged(self):
+        assert self._sanitize("report.pdf") == "report.pdf"
+
+    def test_spaces_replaced_with_underscore(self):
+        assert self._sanitize("my file.pdf") == "my_file.pdf"
+
+    def test_special_chars_replaced(self):
+        result = self._sanitize("file@name!.pdf")
+        assert "@" not in result
+        assert "!" not in result
+
+    def test_leading_dots_stripped(self):
+        result = self._sanitize("...secret.pdf")
+        assert not result.startswith(".")
+
+    def test_long_name_truncated_to_255(self):
+        long_name = "a" * 300 + ".pdf"
+        assert len(self._sanitize(long_name)) <= 255
+
+    def test_whitespace_stripped(self):
+        assert self._sanitize("  file.pdf  ") == "file.pdf"
+
+
+# ---------------------------------------------------------------------------
+# validate_upload_file – rejection branches
+# ---------------------------------------------------------------------------
+
+
+class TestValidateUploadFile:
+    def _validate(self, upload):
+        from backend.app.ingest import validate_upload_file
+
+        return validate_upload_file(cast(UploadFile, upload))
+
+    def test_missing_filename_raises_400(self):
+        upload = _FakeUpload(filename="")
+        with pytest.raises(HTTPException) as exc:
+            self._validate(upload)
+        assert exc.value.status_code == 400
+
+    def test_no_extension_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            self._validate(_FakeUpload(filename="nodotfile"))
+        assert exc.value.status_code == 400
+
+    def test_disallowed_extension_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            self._validate(_FakeUpload(filename="malware.exe", content=b"data"))
+        assert exc.value.status_code == 400
+
+    def test_empty_file_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            self._validate(_FakeUpload(filename="empty.pdf", content=b""))
+        assert exc.value.status_code == 400
+
+    def test_file_too_large_raises_400(self):
+        big = b"x" * (10 * 1024 * 1024 + 1)
+        with pytest.raises(HTTPException) as exc:
+            self._validate(_FakeUpload(filename="big.pdf", content=big))
+        assert exc.value.status_code == 400
+
+    def test_valid_pdf_returns_bytes(self):
+        result = self._validate(_FakeUpload(filename="ok.pdf", content=b"data"))
+        assert isinstance(result, bytes)
+        assert result == b"data"
+
+
+# ---------------------------------------------------------------------------
+# upload_file_to_s3 – ClientError is swallowed
+# ---------------------------------------------------------------------------
+
+
+class TestUploadFileToS3ClientError:
+    @mock_aws
+    def test_client_error_is_swallowed_and_key_returned(self):
+        """upload_file_to_s3 catches ClientError; bucket intentionally absent."""
+        mod = _reload_ingest()
+        # No bucket created → upload_fileobj raises ClientError
+        result = mod.upload_file_to_s3(
+            cast(UploadFile, _FakeUpload("report.pdf")), "user-1"
+        )
+        assert result == "user-1/report.pdf"

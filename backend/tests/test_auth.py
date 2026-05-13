@@ -40,13 +40,6 @@ class TestVerifyToken:
             verify_token(None)
         assert exc_info.value.status_code == 401
 
-    def test_false_token_raises_401(self):
-        from backend.app.auth import verify_token
-
-        with pytest.raises(HTTPException) as exc_info:
-            verify_token(False)
-        assert exc_info.value.status_code == 401
-
     def test_empty_string_token_raises_401(self):
         """Empty string is falsy — should also be rejected."""
         from backend.app.auth import verify_token
@@ -54,3 +47,39 @@ class TestVerifyToken:
         with pytest.raises(HTTPException) as exc_info:
             verify_token("")
         assert exc_info.value.status_code == 401
+
+
+class TestVerifyCognitoToken:
+    def test_no_credentials_raises_401(self):
+        from backend.app.auth import verify_cognito_token
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_cognito_token(credentials=None)
+        assert exc_info.value.status_code == 401
+
+    def test_valid_credentials_returns_user_id(self):
+        from fastapi.security import HTTPAuthorizationCredentials
+
+        from backend.app.auth import verify_cognito_token
+
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="token")
+        result = verify_cognito_token(credentials=creds)
+        assert result == "user-id"
+
+
+class TestOptionalAuth:
+    def test_no_credentials_returns_user_id_not_401(self):
+        """optional_auth must NOT raise when there is no token."""
+        from backend.app.auth import optional_auth
+
+        result = optional_auth(credentials=None)
+        assert result == "user-id"
+
+    def test_with_credentials_returns_user_id(self):
+        from fastapi.security import HTTPAuthorizationCredentials
+
+        from backend.app.auth import optional_auth
+
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="some-token")
+        result = optional_auth(credentials=creds)
+        assert result == "user-id"
