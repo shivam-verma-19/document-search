@@ -336,16 +336,16 @@ class TestAskQuestion:
         assert "Error" in str(result)
 
     def test_fallback_path_writes_cache(self, monkeypatch):
+        # 1. Load the rag module
         rag = _load_rag(
             monkeypatch,
-            search_results=[],
+            search_results=[],  # forces docs < 2 → fallback
             llm_answer="fallback answer",
         )
+
         written = {}
-        monkeypatch.setattr(
-            "backend.app.cache.set_cache",
-            lambda q, a: written.update({q: a}),
-        )
+        # 2. Patch the reference INSIDE the reloaded rag module specifically
+        monkeypatch.setattr(rag, "set_cache", lambda q, a: written.update({q: a}))
 
         rag.ask_question("any question")
         assert len(written) == 1

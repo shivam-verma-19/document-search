@@ -1,4 +1,4 @@
-resource "aws_opensearchserverless_collection" "rag_collection" {
+resource "aws_opensearchserverless_collection" "rag" {
   name = "rag-collection"
   type = "VECTORSEARCH"
 }
