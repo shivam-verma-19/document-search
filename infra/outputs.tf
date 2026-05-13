@@ -23,5 +23,5 @@ output "cognito_client_id" {
 }
 
 output "opensearch_endpoint" {
-  value = aws_opensearchserverless_collection.rag_collection.collection_endpoint
+  value = aws_opensearchserverless_collection.rag.collection_endpoint
 }

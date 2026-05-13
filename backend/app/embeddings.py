@@ -1,10 +1,13 @@
+import json
 import os
+
+import boto3
+from openai import OpenAI
 
 USE_BEDROCK = os.getenv("USE_BEDROCK", "false") == "true"
 
 
 def openai_embedding(text: str):
-    from openai import OpenAI
 
     client = OpenAI()
 
@@ -16,9 +19,6 @@ def openai_embedding(text: str):
 
 
 def bedrock_embedding(text: str):
-    import json
-
-    import boto3
 
     client = boto3.client("bedrock-runtime")  # type: ignore
 

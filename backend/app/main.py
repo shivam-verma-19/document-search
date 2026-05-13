@@ -6,7 +6,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-import backend.app.ingest as ingest
+from backend.app import ingest
 
 from .auth import optional_auth, verify_cognito_token, verify_token
 from .config import get_settings
