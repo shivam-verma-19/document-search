@@ -58,11 +58,12 @@ def _load_rag(
     Reload rag.py with fully mocked dependencies.
     """
 
-    search_results = search_results or [
-        "retrieved chunk 1",
-        "retrieved chunk 2",
-        "retrieved chunk 3",
-    ]
+    if search_results is None:
+        search_results = [
+            "retrieved chunk 1",
+            "retrieved chunk 2",
+            "retrieved chunk 3",
+        ]
 
     # =====================================================
     # Mock metrics / monitoring

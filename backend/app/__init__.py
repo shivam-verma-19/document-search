@@ -1,0 +1,1 @@
+from backend.app import opensearch_client  # noqa: F401 – needed for monkeypatch resolution
