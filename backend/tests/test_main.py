@@ -8,11 +8,8 @@ sys.modules level so these tests run in any CI environment.
 import importlib
 import io
 import os
-import sys
-import types
 import unittest.mock as mock
 
-import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")

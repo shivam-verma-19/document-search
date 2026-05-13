@@ -1,15 +1,15 @@
 # backend/app/processor.py
-
+import uuid
 from io import BytesIO
 
 import boto3
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from unstructured.partition.auto import partition
 
 from .config import get_settings
+from .embeddings import get_embedding
+from .opensearch_client import index_document
 
 settings = get_settings()
 s3 = boto3.client("s3")
@@ -66,9 +66,18 @@ def process_file_from_s3(bucket: str, key: str):
     # =========================
     # EMBEDDINGS + VECTOR STORE
     # =========================
-    embeddings = OpenAIEmbeddings()
+    doc_id = str(uuid.uuid4())
 
-    PineconeVectorStore.from_documents(chunks, embeddings, index_name="rag-index")
+    for idx, chunk in enumerate(chunks):
+        embedding = get_embedding(chunk.page_content)
+
+        index_document(
+            doc_id=doc_id,
+            user_id=key.split("/")[0],
+            chunk_id=idx,
+            text=chunk.page_content,
+            embedding=embedding,
+        )
 
     # =========================
     # MARK AS PROCESSED

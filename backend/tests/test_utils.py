@@ -16,6 +16,7 @@ import os
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -74,7 +75,7 @@ class TestSaveToS3:
 
         from backend.app.utils import save_to_s3
 
-        with pytest.raises(botocore.exceptions.ClientError):
+        with pytest.raises(ClientError):
             save_to_s3(_FakeUpload("x.pdf", b"data"))
 
     @mock_aws
@@ -113,7 +114,7 @@ class TestGetSecrets:
 
         from backend.app.utils import get_secrets
 
-        with pytest.raises(botocore.exceptions.ClientError):
+        with pytest.raises(ClientError):
             get_secrets()
 
 

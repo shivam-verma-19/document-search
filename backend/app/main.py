@@ -98,7 +98,7 @@ def upload(
     else:
         user_id = user.get("sub") or user.get("email") or "anonymous"
 
-    key = ingest.upload_file_to_S3(file, user_id)
+    key = ingest.upload_file_to_s3(file, user_id)
     ingest.enqueue_file(key, user_id)
 
     return {"message": "queued"}

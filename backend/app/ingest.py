@@ -1,16 +1,19 @@
 import json
 import re
 from io import BytesIO
+from uuid import uuid4
 
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile
-from unstructured.partition.auto import partition
 
+from .chunker import chunk_text
 from .config import get_settings
+from .embeddings import get_embedding
+from .opensearch_client import index_document
 
 settings = get_settings()
-s3 = boto3.client("s3")
+s3 = boto3.client("s3")  # type: ignore
 
 _FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
@@ -32,8 +35,7 @@ def validate_upload_file(file: UploadFile) -> bytes:
 
     if extension not in settings.allowed_upload_extensions_list:
         raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file extension: {extension}",
+            status_code=400, detail=f"Unsupported file extension: {extension}"
         )
 
     if (
@@ -41,8 +43,7 @@ def validate_upload_file(file: UploadFile) -> bytes:
         and file.content_type not in settings.allowed_upload_mimes_list
     ):
         raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported content type: {file.content_type}",
+            status_code=400, detail=f"Unsupported content type: {file.content_type}"
         )
 
     content = file.file.read(settings.max_upload_size + 1)
@@ -51,59 +52,58 @@ def validate_upload_file(file: UploadFile) -> bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     if len(content) > settings.max_upload_size:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File exceeds max size of {settings.max_upload_size} bytes",
-        )
-
-    text = content.decode(errors="ignore").lower()
-
-    if any(pattern in text for pattern in settings.forbidden_upload_patterns_list):
-        raise HTTPException(status_code=400, detail="Suspicious content detected")
+        raise HTTPException(status_code=400, detail="File too large")
 
     file.file.seek(0)
     return content
 
 
-def upload_file_to_S3(file: UploadFile, user: str):
+def upload_file_to_s3(file: UploadFile, user: str):
     content = validate_upload_file(file)
 
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Missing filename")
-
-    safe_filename = sanitize_filename(file.filename)
+    safe_filename = sanitize_filename(file.filename or "file")
     key = f"{user}/{safe_filename}"
 
     try:
         s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
     except ClientError:
-        return key
+        pass
 
     return key
 
 
 def process_upload(file: UploadFile, user: str):
-    if not file:
-        raise HTTPException(status_code=400, detail="File is required")
-
-    # read once
     content = validate_upload_file(file)
 
-    # ✅ upload using fresh stream
     safe_filename = sanitize_filename(file.filename or "file")
     key = f"{user}/{safe_filename}"
+
+    # Upload
     s3.upload_fileobj(BytesIO(content), settings.bucket_name, key)
 
-    partition(file=BytesIO(content))
+    # Extract text
+    text = content.decode(errors="ignore")
 
-    # enqueue (safe)
+    doc_id = str(uuid4())
+    chunks = chunk_text(text)
+
+    for i, chunk in enumerate(chunks):
+        embedding = get_embedding(chunk)
+
+        index_document(
+            doc_id=doc_id,
+            user_id=user,
+            chunk_id=i,
+            text=chunk,
+            embedding=embedding,
+        )
+
     enqueue_file(key, user)
 
     return {"message": "queued"}
 
 
 def enqueue_file(key: str, user: str = "test-user"):
-
     sqs = boto3.client("sqs")
 
     body = json.dumps(
@@ -121,4 +121,6 @@ def enqueue_file(key: str, user: str = "test-user"):
             MessageBody=body,
         )
     except ClientError:
-        return body
+        return None
+
+    return body

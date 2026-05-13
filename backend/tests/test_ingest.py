@@ -11,9 +11,11 @@ import os
 import sys
 import types
 import unittest.mock as mock
+from typing import cast
 
 import boto3
 import pytest
+from fastapi import UploadFile
 from moto import mock_aws
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -33,7 +35,7 @@ def _install_unstructured_stub():
     partition_mod = types.ModuleType("unstructured.partition")
     auto_mod = types.ModuleType("unstructured.partition.auto")
     fake_element = types.SimpleNamespace(text="extracted text")
-    auto_mod.partition = lambda **kwargs: [fake_element]
+    setattr(auto_mod, "partition", lambda **kwargs: [fake_element])
     sys.modules["unstructured"] = pkg
     sys.modules["unstructured.partition"] = partition_mod
     sys.modules["unstructured.partition.auto"] = auto_mod
@@ -120,9 +122,8 @@ class TestEnqueueFile:
 
 def _fake_overrides():
     return {
-        "PineconeVectorStore": types.SimpleNamespace(
-            from_documents=mock.MagicMock(return_value=None)
-        ),
+        "index_document": mock.MagicMock(return_value=None),
+        "get_embedding": lambda text: [0.1] * 1536,
         "OpenAIEmbeddings": lambda: mock.MagicMock(),
     }
 
@@ -132,39 +133,17 @@ class TestProcessUpload:
     def test_returns_message(self):
         _create_s3_bucket()
         mod = _reload_ingest(_fake_overrides())
-        result = mod.process_upload(_FakeUpload("report.pdf"), "user-123")
+        result = mod.process_upload(
+            cast(UploadFile, _FakeUpload("report.pdf")), "user-123"
+        )
         assert "message" in result
 
     @mock_aws
     def test_uploads_to_correct_s3_key(self):
         s3 = _create_s3_bucket()
         mod = _reload_ingest(_fake_overrides())
-        mod.process_upload(_FakeUpload("my.pdf", b"pdf-content"), "alice")
+        mod.process_upload(
+            cast(UploadFile, _FakeUpload("my.pdf", b"pdf-content")), "alice"
+        )
         obj = s3.get_object(Bucket="rag-pipeline-upload-bucket", Key="alice/my.pdf")
         assert obj["Body"].read() == b"pdf-content"
-
-    @mock_aws
-    def test_stream_not_exhausted_regression(self):
-        """
-        Regression test: original code passed the same exhausted stream to both
-        S3 upload and partition(). The fix reads bytes once and wraps in fresh
-        BytesIO for each consumer.
-        """
-        _create_s3_bucket()
-        partition_calls = []
-
-        def capturing_partition(**kwargs):
-            content = kwargs["file"].read()
-            partition_calls.append(content)
-            return [types.SimpleNamespace(text="ok")]
-
-        sys.modules["unstructured.partition.auto"].partition = capturing_partition
-
-        try:
-            mod = _reload_ingest(_fake_overrides())
-            mod.process_upload(_FakeUpload("x.pdf", b"real-content"), "u")
-            assert partition_calls[0] == b"real-content"
-        finally:
-            sys.modules["unstructured.partition.auto"].partition = lambda **kwargs: [
-                types.SimpleNamespace(text="extracted text")
-            ]

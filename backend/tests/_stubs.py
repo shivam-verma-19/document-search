@@ -24,9 +24,6 @@ def install_all_stubs():
 
     sys.modules["langchain_openai"] = mock_openai_module
 
-    # =========================
-    # 2. Mock Pinecone Vector Store
-    # =========================
     class MockDoc:
         def __init__(self, content):
             self.page_content = content
@@ -39,7 +36,14 @@ def install_all_stubs():
             # Return deterministic fake docs
             return [MockDoc(f"doc content {i} for {query}") for i in range(min(k, 5))]
 
-    mock_pinecone_module = MagicMock()
-    mock_pinecone_module.PineconeVectorStore = MockVectorStore
+    mock_opensearch = MagicMock()
+    mock_opensearch.search_similar = MagicMock(
+        return_value=[
+            "mock document 1",
+            "mock document 2",
+            "mock document 3",
+        ]
+    )
+    mock_opensearch.index_document = MagicMock()
 
-    sys.modules["langchain_pinecone"] = mock_pinecone_module
+    sys.modules["backend.app.opensearch_client"] = mock_opensearch

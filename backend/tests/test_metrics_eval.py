@@ -8,6 +8,7 @@ Covers:
 """
 
 import os
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -78,7 +79,7 @@ class TestLogMetrics:
         items = get_metrics()
         row = items[0]
         assert row["query"] == "my query"
-        assert int(row["latency"]) == 300
+        assert int(cast(Any, row["latency"])) == 300
         assert row["source"] == "llm"
 
     @mock_aws
@@ -89,7 +90,7 @@ class TestLogMetrics:
         log_metrics("q", 10, "rag")
         log_metrics("q", 20, "rag")
         items = get_metrics()
-        ids = {item["id"] for item in items}
+        ids = {str(item["id"]) for item in items}
         assert len(ids) == 2  # two distinct UUIDs
 
 
@@ -116,9 +117,13 @@ class TestStoreEval:
         db = boto3.resource("dynamodb", region_name="us-east-1")
         table = db.Table("rag-eval")
         resp = table.get_item(Key={"query": "test query"})
-        item = resp["Item"]
-        assert int(item["latency"]) == 200
-        assert int(item["precision"]) == 1
+
+        assert "Item" in resp
+
+        item = cast(dict[str, Any], resp["Item"])
+
+        assert int(cast(Any, item["latency"])) == 200
+        assert int(cast(Any, item["precision"])) == 1
 
     @mock_aws
     def test_store_eval_overwrite_on_same_query(self):
@@ -132,4 +137,9 @@ class TestStoreEval:
         db = boto3.resource("dynamodb", region_name="us-east-1")
         table = db.Table("rag-eval")
         resp = table.get_item(Key={"query": "q"})
-        assert int(resp["Item"]["latency"]) == 999
+
+        assert "Item" in resp
+
+        item = cast(dict[str, Any], resp["Item"])
+
+        assert int(cast(Any, item["latency"])) == 999

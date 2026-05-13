@@ -1,5 +1,5 @@
 import os
-from typing import Any
+from typing import Union
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -7,19 +7,24 @@ from jose import JWTError, jwt
 
 security = HTTPBearer(auto_error=False)
 
-# Assume jwk_client may or may not be initialized
-jwk_client = None  # your existing setup
+# Assume JWK_CLIENT may or may not be initialized
+JWK_CLIENT = None
 
 
-def verify_token(token: str):
-    # ✅ TEST MODE: allow any non-empty token
-    if not jwk_client:
-        if not token:
-            raise HTTPException(status_code=401, detail="Unauthorized")
+def verify_token(
+    token: Union[str, HTTPAuthorizationCredentials, None],
+):
+    if isinstance(token, HTTPAuthorizationCredentials):
+        token = token.credentials
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not JWK_CLIENT:
         return "user-id"
 
     try:
-        signing_key = jwk_client.get_signing_key_from_jwt(token).key
+        signing_key = JWK_CLIENT.get_signing_key_from_jwt(token).key
 
         claims = jwt.decode(
             token,
@@ -30,8 +35,8 @@ def verify_token(token: str):
 
         return claims
 
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Unauthorized") from exc
 
 
 def verify_cognito_token(
@@ -43,7 +48,7 @@ def verify_cognito_token(
 
     token = credentials.credentials
 
-    if not jwk_client:
+    if not JWK_CLIENT:
         return "user-id"
 
     return verify_token(token)
@@ -57,7 +62,7 @@ def optional_auth(
 
     token = credentials.credentials
 
-    if not jwk_client:
+    if not JWK_CLIENT:
         return "user-id"
 
     return verify_token(token)

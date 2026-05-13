@@ -3,13 +3,11 @@ uvicorn
 boto3
 langchain
 langchain-openai
-pinecone
 unstructured
 pypdf
 python-docx
 sentence-transformers
 rank_bm25
-langchain-pinecone
 langchain-text-splitters
 pytest
 moto
@@ -19,3 +17,6 @@ PyJWT
 slowapi
 python-jose
 pydantic-settings
+requests-aws4auth
+openai
+opensearch-py
