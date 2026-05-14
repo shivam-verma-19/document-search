@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 import boto3
-import requests
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +22,6 @@ LLAMA_MODEL_ID = os.getenv(
     "BEDROCK_LLAMA_MODEL_ID",
     "meta.llama3-8b-instruct-v1:0",
 )
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "60"))
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 
@@ -306,40 +301,6 @@ def _invoke_llama(prompt: str) -> ModelResponse:
         )
 
 
-def _invoke_ollama(prompt: str) -> ModelResponse:
-    try:
-        resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-            },
-            timeout=OLLAMA_TIMEOUT,
-        )
-
-        resp.raise_for_status()
-
-        text = resp.json().get("response", "").strip()
-
-        if not text:
-            raise ValueError("Empty response")
-
-        return ModelResponse(
-            model=f"ollama-{OLLAMA_MODEL}",
-            text=text,
-            success=True,
-        )
-
-    except Exception as exc:
-        return ModelResponse(
-            model=f"ollama-{OLLAMA_MODEL}",
-            text="",
-            success=False,
-            error=str(exc),
-        )
-
-
 # ─── Router ───────────────────────────────────────────────────────────────────
 
 
@@ -451,29 +412,6 @@ def route_and_invoke(
 
         else:
             errors[claude.model] = claude.error or "unknown"
-
-    # ─────────────────────────────────────────────────────────────
-    # FINAL OLLAMA FALLBACK
-    # ─────────────────────────────────────────────────────────────
-
-    ollama = _invoke_ollama(prompt)
-
-    attempted.append(ollama.model)
-
-    if ollama.success and ollama.text:
-        conf = score_confidence(query, ollama.text)
-
-        return RouterResult(
-            answer=ollama.text,
-            model_used=ollama.model,
-            complexity=clf.complexity,
-            confidence=conf,
-            escalated=True,
-            attempted=attempted,
-            errors=errors,
-        ).to_dict()
-
-    errors[ollama.model] = ollama.error or "unknown"
 
     return RouterResult(
         answer="Error: all model tiers failed to generate a response.",

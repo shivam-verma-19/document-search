@@ -46,6 +46,11 @@ resource "aws_dynamodb_table" "metrics" {
     name = "id"
     type = "S"
   }
+  
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 
   attribute {
     name = "timestamp"
