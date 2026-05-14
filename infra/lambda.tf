@@ -13,15 +13,11 @@ resource "aws_lambda_function" "rag_api" {
   environment {
     variables = {
       QUEUE_URL               = aws_sqs_queue.rag_queue.id
-      AWS_REGION              = var.aws_region
       SECRET_NAME             = aws_secretsmanager_secret.rag_secrets.name
       BUCKET_NAME             = aws_s3_bucket.uploads.bucket
       USE_BEDROCK             = "true"
       BEDROCK_CLAUDE_MODEL_ID = "anthropic.claude-sonnet-4-5"
       BEDROCK_LLAMA_MODEL_ID  = "meta.llama3-8b-instruct-v1:0"
-      OLLAMA_BASE_URL         = var.ollama_base_url
-      OLLAMA_MODEL            = var.ollama_model
-      OLLAMA_TIMEOUT          = "60"
     }
   }
 
@@ -44,7 +40,6 @@ resource "aws_lambda_function" "rag_ingest_worker" {
 
   environment {
     variables = {
-      AWS_REGION  = var.aws_region
       SECRET_NAME = aws_secretsmanager_secret.rag_secrets.name
       BUCKET_NAME = aws_s3_bucket.uploads.bucket
     }
