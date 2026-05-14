@@ -1,6 +1,11 @@
 resource "aws_opensearchserverless_collection" "rag" {
   name = "rag-collection"
   type = "VECTORSEARCH"
+
+  depends_on = [
+    aws_opensearchserverless_security_policy.encryption,
+    aws_opensearchserverless_security_policy.network
+  ]
 }
 
 resource "aws_opensearchserverless_security_policy" "encryption" {
