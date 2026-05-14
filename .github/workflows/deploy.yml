@@ -116,6 +116,15 @@ jobs:
         run: terraform validate
         working-directory: infra
 
+      - name: Create Lambda Deployment Zip
+        run: |
+          cd backend
+          zip -r deployment.zip . \
+            -x "*.git*" \
+            -x "*__pycache__*" \
+            -x "*.pytest_cache*" \
+            -x "*.venv*"
+        
       - name: Terraform Plan
         run: terraform plan
         working-directory: infra
@@ -124,14 +133,8 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: infra
 
-      # 📦 Deploy Lambda Code
-      - name: Zip Lambda
-        run: |
-          cd backend
-          zip -r lambda.zip .
-
       - name: Update Lambda
         run: |
           aws lambda update-function-code \
             --function-name rag-api \
-            --zip-file fileb://backend/lambda.zip
+            --zip-file fileb://backend/deployment.zip
