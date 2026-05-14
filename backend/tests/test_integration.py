@@ -47,7 +47,6 @@ def _setup_aws():
     sm = boto3.client("secretsmanager", region_name="us-east-1")
     sm.create_secret(
         Name="rag-secrets",
-        SecretString=json.dumps({"OPENAI_API_KEY": "sk-test"}),
     )
 
 
@@ -56,9 +55,6 @@ def _load_rag(monkeypatch, llm_answer="answer"):
     monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a: None)
     monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: docs)
     monkeypatch.setattr("backend.app.utils.log_event", lambda *a: None)
-    monkeypatch.setattr(
-        "backend.app.utils.get_secrets", lambda: {"OPENAI_API_KEY": "sk-test"}
-    )
 
     llm = mock.MagicMock()
     llm.invoke.return_value = mock.MagicMock(content=llm_answer)
@@ -72,8 +68,6 @@ def _load_rag(monkeypatch, llm_answer="answer"):
     import backend.app.rag as rag_mod
 
     importlib.reload(rag_mod)
-    rag_mod._llm = llm
-    rag_mod._vector_db = vdb
     rag_mod._bm25 = bm25
 
     return rag_mod

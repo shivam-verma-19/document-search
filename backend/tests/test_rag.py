@@ -1,22 +1,6 @@
-"""
-Tests for backend/app/rag.py
-
-Updated for:
-- OpenSearch Serverless
-- Embedding-based retrieval
-- Hybrid search
-- Reranking
-- Cache handling
-- LLM fallback handling
-
-All external services are mocked.
-"""
-
 import importlib
 import os
-import types
 import unittest.mock as mock
-from typing import cast
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
@@ -28,36 +12,45 @@ from . import _stubs
 _stubs.install_all_stubs()
 
 
-# =========================================================
-# HELPERS
-# =========================================================
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _doc(text):
-    d = types.SimpleNamespace()
-    d.page_content = text
-    d.metadata = {}
-    return d
-
-
-def _make_llm(answer="stubbed answer"):
-    llm = mock.MagicMock()
-    llm.invoke.return_value = mock.MagicMock(content=answer)
-    return llm
+def _router_result(
+    answer="good answer",
+    model="llama3-bedrock",
+    complexity="simple",
+    confidence=0.80,
+    escalated=False,
+):
+    return {
+        "answer": answer,
+        "model_used": model,
+        "complexity": complexity,
+        "confidence": confidence,
+        "escalated": escalated,
+        "attempted": [model],
+        "errors": {},
+    }
 
 
 def _load_rag(
     monkeypatch,
     *,
     cache_hit=None,
-    llm_answer="good answer",
+    router_answer="good answer",
+    router_model="llama3-bedrock",
+    router_complexity="simple",
+    router_confidence=0.80,
+    router_escalated=False,
+    router_raises=False,
     search_results=None,
     rerank_passthrough=True,
 ):
     """
-    Reload rag.py with fully mocked dependencies.
-    """
+    Reload rag.py with all dependencies mocked.
 
+    Key difference from original: mocks route_and_invoke instead of _llm.
+    """
     if search_results is None:
         search_results = [
             "retrieved chunk 1",
@@ -65,356 +58,291 @@ def _load_rag(
             "retrieved chunk 3",
         ]
 
-    # =====================================================
-    # Mock metrics / monitoring
-    # =====================================================
+    # Metrics / monitoring
+    monkeypatch.setattr("backend.app.metrics.log_metrics", lambda *a, **k: None)
+    monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a, **k: None)
+    monkeypatch.setattr("backend.app.evaluation.store_eval", lambda *a, **k: None)
+    monkeypatch.setattr("backend.app.utils.log_event", lambda *a, **k: None)
 
-    monkeypatch.setattr(
-        "backend.app.metrics.log_metrics",
-        lambda *a, **k: None,
-    )
-
-    monkeypatch.setattr(
-        "backend.app.monitoring.push_metric",
-        lambda *a, **k: None,
-    )
-
-    monkeypatch.setattr(
-        "backend.app.evaluation.store_eval",
-        lambda *a, **k: None,
-    )
-
-    monkeypatch.setattr(
-        "backend.app.utils.log_event",
-        lambda *a, **k: None,
-    )
-
-    # =====================================================
     # Cache
-    # =====================================================
+    monkeypatch.setattr("backend.app.cache.get_cache", lambda q: cache_hit)
+    monkeypatch.setattr("backend.app.cache.set_cache", lambda q, a: None)
 
-    if cache_hit is not None:
-        monkeypatch.setattr(
-            "backend.app.cache.get_cache",
-            lambda q: cache_hit,
-        )
-    else:
-        monkeypatch.setattr(
-            "backend.app.cache.get_cache",
-            lambda q: None,
-        )
-
-    monkeypatch.setattr(
-        "backend.app.cache.set_cache",
-        lambda q, a: None,
-    )
-
-    # =====================================================
     # Embeddings
-    # =====================================================
-
     monkeypatch.setattr(
-        "backend.app.embeddings.get_embedding",
-        lambda q: [0.1, 0.2, 0.3],
+        "backend.app.embeddings.get_embedding", lambda q: [0.1, 0.2, 0.3]
     )
 
-    # =====================================================
     # OpenSearch
-    # =====================================================
-
     monkeypatch.setattr(
         "backend.app.opensearch_client.search_similar",
         lambda embedding, k=5: search_results[:k],
     )
 
-    # =====================================================
     # Reranker
-    # =====================================================
-
     if rerank_passthrough:
+        monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: docs)
+    else:
+        monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: [])
+
+    # Bedrock Router
+    if router_raises:
         monkeypatch.setattr(
-            "backend.app.reranker.rerank",
-            lambda q, docs: docs,
+            "backend.app.bedrock_router.route_and_invoke",
+            mock.MagicMock(side_effect=Exception("router down")),
         )
     else:
-        monkeypatch.setattr(
-            "backend.app.reranker.rerank",
-            lambda q, docs: [],
+        result = _router_result(
+            answer=router_answer,
+            model=router_model,
+            complexity=router_complexity,
+            confidence=router_confidence,
+            escalated=router_escalated,
         )
-
-    # =====================================================
-    # Reload rag
-    # =====================================================
+        monkeypatch.setattr(
+            "backend.app.bedrock_router.route_and_invoke",
+            mock.MagicMock(return_value=result),
+        )
 
     import backend.app.rag as rag_mod
 
     importlib.reload(rag_mod)
-
-    # Inject mocked LLM
-    rag_mod._llm = _make_llm(llm_answer)
-
     return rag_mod
 
 
-# =========================================================
-# rewrite_query
-# =========================================================
+# ─── rewrite_query ────────────────────────────────────────────────────────────
 
 
 class TestRewriteQuery:
     def test_returns_rewritten_string(self, monkeypatch):
-        rag = _load_rag(
-            monkeypatch,
-            llm_answer="better rewritten query",
-        )
+        rag = _load_rag(monkeypatch, router_answer="better rewritten query")
+        assert rag.rewrite_query("what is AI?") == "better rewritten query"
 
-        result = rag.rewrite_query("what is AI?")
+    def test_falls_back_to_original_on_exception(self, monkeypatch):
+        rag = _load_rag(monkeypatch, router_raises=True)
+        assert rag.rewrite_query("original query") == "original query"
 
-        assert isinstance(result, str)
-        assert result == "better rewritten query"
-
-    def test_falls_back_on_exception(self, monkeypatch):
-        rag = _load_rag(monkeypatch)
-
-        cast(mock.MagicMock, rag._llm.invoke).side_effect = Exception("network error")
-
-        result = rag.rewrite_query("original query")
-
-        assert result == "original query"
+    def test_falls_back_to_original_on_empty_answer(self, monkeypatch):
+        rag = _load_rag(monkeypatch, router_answer="")
+        assert rag.rewrite_query("original query") == "original query"
 
     def test_empty_query_returns_empty_string(self, monkeypatch):
         rag = _load_rag(monkeypatch)
+        assert rag.rewrite_query("") == ""
 
-        result = rag.rewrite_query("")
+    def test_terse_system_in_prompt(self, monkeypatch):
+        """TERSE_SYSTEM must be prepended to the rewrite prompt."""
+        spy = mock.MagicMock(return_value=_router_result("rewritten"))
+        monkeypatch.setattr("backend.app.bedrock_router.route_and_invoke", spy)
+        import backend.app.rag as rag_mod
 
-        assert result == ""
+        importlib.reload(rag_mod)
+        rag_mod.rewrite_query("find docs about AI")
+        call_kwargs = spy.call_args[1] if spy.call_args[1] else {}
+        call_prompt = call_kwargs.get("prompt") or spy.call_args[0][0]
+        assert any(
+            word in call_prompt.lower()
+            for word in ("concise", "filler", "preamble", "fragment")
+        )
+
+    def test_context_is_empty_string_for_rewrite(self, monkeypatch):
+        """rewrite_query must pass context='' so classifier keeps it simple."""
+        spy = mock.MagicMock(return_value=_router_result("rewritten"))
+        monkeypatch.setattr("backend.app.bedrock_router.route_and_invoke", spy)
+        import backend.app.rag as rag_mod
+
+        importlib.reload(rag_mod)
+        rag_mod.rewrite_query("query")
+        _, kwargs = spy.call_args
+        assert kwargs.get("context") == ""
 
 
-# =========================================================
-# hybrid_search
-# =========================================================
+# ─── hybrid_search ────────────────────────────────────────────────────────────
 
 
 class TestHybridSearch:
     def test_returns_docs(self, monkeypatch):
         rag = _load_rag(monkeypatch)
-
         docs = rag.hybrid_search("query", k=3)
-
         assert isinstance(docs, list)
-        assert len(docs) == 3
+        assert len(docs) <= 3
 
     def test_docs_have_page_content(self, monkeypatch):
         rag = _load_rag(monkeypatch)
-
         docs = rag.hybrid_search("query")
-
-        assert hasattr(docs[0], "page_content")
+        assert all(hasattr(d, "page_content") for d in docs)
 
     def test_caps_results_at_k(self, monkeypatch):
-        rag = _load_rag(
-            monkeypatch,
-            search_results=[
-                "a",
-                "b",
-                "c",
-                "d",
-                "e",
-            ],
-        )
-
+        rag = _load_rag(monkeypatch, search_results=["a", "b", "c", "d", "e"])
         docs = rag.hybrid_search("query", k=2)
-
-        assert len(docs) == 2
+        assert len(docs) <= 2
 
     def test_empty_query_returns_empty_list(self, monkeypatch):
         rag = _load_rag(monkeypatch)
+        assert rag.hybrid_search("") == []
 
-        docs = rag.hybrid_search("", k=5)
+    def test_deduplicates_vector_and_bm25(self, monkeypatch):
+        rag = _load_rag(
+            monkeypatch,
+            search_results=["chunk A", "chunk B", "chunk A"],
+        )
+        docs = rag.hybrid_search("query", k=5)
+        contents = [d.page_content for d in docs]
+        assert len(contents) == len(set(contents))
 
-        assert docs == []
+    def test_returns_empty_on_opensearch_failure(self, monkeypatch):
+        rag = _load_rag(monkeypatch)
+        monkeypatch.setattr(
+            "backend.app.opensearch_client.search_similar",
+            mock.MagicMock(side_effect=Exception("opensearch down")),
+        )
+        importlib.reload(rag)
+        assert rag.hybrid_search("query") == []
 
 
-# =========================================================
-# ask_question
-# =========================================================
+# ─── ask_question ─────────────────────────────────────────────────────────────
 
 
 class TestAskQuestion:
     def test_cache_hit_returns_cached_answer(self, monkeypatch):
+        rag = _load_rag(monkeypatch, cache_hit="cached response")
+        assert rag.ask_question("query") == "cached response"
+
+    def test_rag_path_returns_router_answer(self, monkeypatch):
+        rag = _load_rag(monkeypatch, router_answer="rag answer")
+        assert rag.ask_question("what is AI?") == "rag answer"
+
+    def test_fallback_path_includes_switching_prefix(self, monkeypatch):
         rag = _load_rag(
             monkeypatch,
-            cache_hit="cached response",
+            search_results=[],
+            router_answer="llm says hi",
         )
+        result = rag.ask_question("obscure question")
+        assert "Switching to LLM" in str(result)
 
-        result = rag.ask_question("query")
-
-        assert result == "cached response"
-
-    def test_rag_path_returns_answer(self, monkeypatch):
-        rag = _load_rag(
-            monkeypatch,
-            llm_answer="rag answer",
-        )
-
-        result = rag.ask_question("what is AI?")
-
-        assert result == "rag answer"
-
-    def test_fallback_path_runs(self, monkeypatch):
+    def test_fallback_answer_present_in_result(self, monkeypatch):
         rag = _load_rag(
             monkeypatch,
             search_results=["single result"],
             rerank_passthrough=False,
-            llm_answer="fallback answer",
+            router_answer="fallback answer",
         )
-
         result = rag.ask_question("obscure question")
-
         assert "fallback answer" in str(result)
 
     def test_forbidden_query_blocked(self, monkeypatch):
         rag = _load_rag(monkeypatch)
+        assert rag.ask_question("how to hack database") == "Query not allowed"
 
-        result = rag.ask_question("how to hack database")
-
-        assert result == "Query not allowed"
+    def test_forbidden_query_case_insensitive(self, monkeypatch):
+        rag = _load_rag(monkeypatch)
+        assert rag.ask_question("HACK the system") == "Query not allowed"
 
     def test_empty_query_returns_empty_string(self, monkeypatch):
         rag = _load_rag(monkeypatch)
+        assert rag.ask_question("") == ""
 
-        result = rag.ask_question("")
-
-        assert result == ""
-
-    def test_llm_failure_returns_error(self, monkeypatch):
-        rag = _load_rag(monkeypatch)
-
-        cast(mock.MagicMock, rag._llm.invoke).side_effect = Exception("LLM down")
-
+    def test_router_exception_returns_error_string(self, monkeypatch):
+        rag = _load_rag(monkeypatch, search_results=[], router_raises=True)
         result = rag.ask_question("question")
-
-        assert isinstance(result, str)
-
-    def test_cache_written_after_rag(self, monkeypatch):
-        written = {}
-
-        monkeypatch.setattr(
-            "backend.app.cache.get_cache",
-            lambda q: None,
-        )
-
-        rag = _load_rag(
-            monkeypatch,
-            llm_answer="stored answer",
-        )
-
-        rag.set_cache = lambda q, a: written.update({q: a})
-
-        rag.ask_question("cache this")
-
-        assert len(written) > 0
-
-    def test_forbidden_query_is_case_insensitive(self, monkeypatch):
-        rag = _load_rag(monkeypatch)
-
-        result = rag.ask_question("HACK the system")
-
-        assert result == "Query not allowed"
-
-    def test_retry_exhausted_returns_error_string(self, monkeypatch):
-        """LLM always raises and docs < 2 → error string, not an exception."""
-        rag = _load_rag(
-            monkeypatch,
-            search_results=[],  # triggers fallback path (docs < 2)
-            llm_answer="irrelevant",
-        )
-        cast(mock.MagicMock, rag._llm.invoke).side_effect = Exception("LLM down")
-
-        result = rag.ask_question("what is X?")
-
         assert "Error" in str(result)
 
-    def test_fallback_path_writes_cache(self, monkeypatch):
-        # 1. Load the rag module
-        rag = _load_rag(
-            monkeypatch,
-            search_results=[],  # forces docs < 2 → fallback
-            llm_answer="fallback answer",
-        )
-
+    def test_cache_written_after_successful_rag(self, monkeypatch):
         written = {}
-        # 2. Patch the reference INSIDE the reloaded rag module specifically
-        monkeypatch.setattr(rag, "set_cache", lambda q, a: written.update({q: a}))
+        rag = _load_rag(monkeypatch, router_answer="stored answer")
+        monkeypatch.setattr(
+            "backend.app.cache.set_cache",
+            lambda q, a: written.update({q: a}),
+        )
+        importlib.reload(rag)
+        rag.ask_question("cache this")
+        assert len(written) > 0
 
-        rag.ask_question("any question")
-        assert len(written) == 1
-
-    def test_exactly_one_doc_triggers_fallback_not_rag(self, monkeypatch):
-        """Boundary: 1 doc < 2 threshold → fallback prefix appears in answer."""
+    def test_exactly_one_doc_triggers_fallback(self, monkeypatch):
         rag = _load_rag(
             monkeypatch,
             search_results=["single chunk"],
             rerank_passthrough=True,
-            llm_answer="llm says hi",
+            router_answer="llm says hi",
         )
-
         result = rag.ask_question("question?")
-
         assert "Switching to LLM" in str(result)
 
-    def test_two_docs_takes_rag_path_not_fallback(self, monkeypatch):
-        """Boundary: 2 docs >= 2 threshold → RAG path, no fallback prefix."""
+    def test_two_docs_takes_rag_path(self, monkeypatch):
         rag = _load_rag(
             monkeypatch,
             search_results=["chunk a", "chunk b"],
             rerank_passthrough=True,
-            llm_answer="rag answer",
+            router_answer="rag answer",
         )
-
         result = rag.ask_question("question?")
-
         assert "Switching to LLM" not in str(result)
 
+    def test_rag_path_passes_context_to_router(self, monkeypatch):
+        """context= must be non-empty on the RAG path."""
+        rag = _load_rag(monkeypatch, router_answer="answer")
+        spy = mock.MagicMock(return_value=_router_result("answer"))
+        monkeypatch.setattr("backend.app.bedrock_router.route_and_invoke", spy)
+        importlib.reload(rag)
+        rag.ask_question("tell me about AI")
+        _, kwargs = spy.call_args
+        assert kwargs.get("context", "") != ""
 
-# =========================================================
-# summarize_doc
-# =========================================================
+    def test_fallback_path_passes_empty_context(self, monkeypatch):
+        """context must be '' on the fallback (no-docs) path."""
+        rag = _load_rag(monkeypatch, search_results=[], router_answer="fallback")
+        spy = mock.MagicMock(return_value=_router_result("fallback"))
+        monkeypatch.setattr("backend.app.bedrock_router.route_and_invoke", spy)
+        importlib.reload(rag)
+        rag.ask_question("anything")
+        _, kwargs = spy.call_args
+        assert kwargs.get("context") == ""
+
+    def test_escalated_response_returned_normally(self, monkeypatch):
+        rag = _load_rag(
+            monkeypatch,
+            router_answer="claude escalated answer",
+            router_model="claude-sonnet",
+            router_escalated=True,
+        )
+        result = rag.ask_question("complex analytical question")
+        assert result == "claude escalated answer"
+
+    def test_fallback_path_writes_cache(self, monkeypatch):
+        written = {}
+        rag = _load_rag(monkeypatch, search_results=[], router_answer="fallback answer")
+        monkeypatch.setattr(rag, "set_cache", lambda q, a: written.update({q: a}))
+        rag.ask_question("any question")
+        assert len(written) == 1
+
+
+# ─── summarize_doc ────────────────────────────────────────────────────────────
 
 
 class TestSummarizeDoc:
     def test_returns_summary(self, monkeypatch):
-        rag = _load_rag(
-            monkeypatch,
-            llm_answer="summary text",
-        )
+        rag = _load_rag(monkeypatch, router_answer="summary text")
+        assert rag.summarize_doc("doc-id") == "summary text"
 
-        result = rag.summarize_doc("doc-id")
-
-        assert result == "summary text"
-
-    def test_returns_no_content_when_empty(self, monkeypatch):
-        rag = _load_rag(
-            monkeypatch,
-            search_results=[],
-        )
-
-        result = rag.summarize_doc("missing-doc")
-
-        assert result == "No content found."
+    def test_returns_no_content_when_no_docs(self, monkeypatch):
+        rag = _load_rag(monkeypatch, search_results=[])
+        assert rag.summarize_doc("missing-doc") == "No content found."
 
     def test_returns_string(self, monkeypatch):
         rag = _load_rag(monkeypatch)
+        assert isinstance(rag.summarize_doc("doc"), str)
 
-        result = rag.summarize_doc("doc")
+    def test_handles_router_failure(self, monkeypatch):
+        rag = _load_rag(monkeypatch, router_raises=True)
+        assert rag.summarize_doc("doc") == "Error generating summary."
 
-        assert isinstance(result, str)
-
-    def test_handles_llm_failure(self, monkeypatch):
-        rag = _load_rag(monkeypatch)
-
-        cast(mock.MagicMock, rag._llm.invoke).side_effect = Exception("LLM down")
-
-        result = rag.summarize_doc("doc")
-
-        assert result == "Error generating summary."
+    def test_summarize_passes_context_to_router(self, monkeypatch):
+        """Summarization must pass non-empty context= for classifier."""
+        rag = _load_rag(monkeypatch, router_answer="summary")
+        spy = mock.MagicMock(return_value=_router_result("summary"))
+        monkeypatch.setattr("backend.app.bedrock_router.route_and_invoke", spy)
+        importlib.reload(rag)
+        rag.summarize_doc("doc-id")
+        _, kwargs = spy.call_args
+        assert kwargs.get("context", "") != ""

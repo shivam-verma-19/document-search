@@ -1,16 +1,3 @@
-"""
-Tests for backend/app/config.py and backend/app/embeddings.py
-
-config covers:
-  - Settings._parse_list: comma-separated, JSON list, empty string, whitespace, casing
-  - Settings properties: allowed_upload_extensions_list, allowed_upload_mimes_list,
-    forbidden_upload_patterns_list
-
-embeddings covers:
-  - get_embedding dispatches to openai_embedding when USE_BEDROCK=false
-  - get_embedding dispatches to bedrock_embedding when USE_BEDROCK=true
-"""
-
 import importlib
 import os
 
@@ -82,23 +69,6 @@ class TestSettingsParseList:
 
 
 class TestGetEmbeddingDispatch:
-    def test_uses_openai_when_use_bedrock_false(self, monkeypatch):
-        monkeypatch.setenv("USE_BEDROCK", "false")
-
-        import backend.app.embeddings as emb
-
-        importlib.reload(emb)
-
-        called = {}
-
-        def fake_openai(text):
-            called["fn"] = "openai"
-            return [0.1]
-
-        monkeypatch.setattr(emb, "openai_embedding", fake_openai)
-        emb.get_embedding("hello")
-
-        assert called.get("fn") == "openai"
 
     def test_uses_bedrock_when_use_bedrock_true(self, monkeypatch):
         monkeypatch.setenv("USE_BEDROCK", "true")
@@ -124,7 +94,7 @@ class TestGetEmbeddingDispatch:
         import backend.app.embeddings as emb
 
         importlib.reload(emb)
-        monkeypatch.setattr(emb, "openai_embedding", lambda t: [0.5, 0.6])
+        monkeypatch.setattr(emb, "bedrock_embedding", lambda t: [0.5, 0.6])
 
         result = emb.get_embedding("test")
         assert isinstance(result, list)

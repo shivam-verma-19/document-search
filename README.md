@@ -5,7 +5,7 @@ A production-ready **Retrieval-Augmented Generation (RAG)** platform built with 
 - FastAPI
 - AWS Lambda
 - OpenSearch Serverless
-- OpenAI / Bedrock Embeddings
+- Bedrock
 - Hybrid Search
 - Reranking
 - Semantic Caching
@@ -53,9 +53,7 @@ This improves:
 ## 🧠 Context-Aware Q&A
 
 Uses:
-
-- OpenAI GPT-4o-mini
-- Optional Amazon Bedrock models
+- Amazon Bedrock models
 
 Features:
 
@@ -119,6 +117,6 @@ Hybrid Retrieval
 ↓
 Reranker
 ↓
-OpenAI / Bedrock
+Bedrock
 ↓
 Response

@@ -96,18 +96,6 @@ class TestSaveToS3:
 
 class TestGetSecrets:
     @mock_aws
-    def test_returns_parsed_dict(self):
-        sm = boto3.client("secretsmanager", region_name="us-east-1")
-        sm.create_secret(
-            Name="rag-secrets",
-            SecretString=json.dumps({"OPENAI_API_KEY": "sk-test"}),
-        )
-
-        from backend.app.utils import get_secrets
-
-        secrets = get_secrets()
-        assert secrets["OPENAI_API_KEY"] == "sk-test"
-
     @mock_aws
     def test_missing_secret_raises(self):
         import botocore

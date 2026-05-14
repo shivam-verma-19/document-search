@@ -2,7 +2,6 @@ fastapi
 uvicorn
 boto3
 langchain
-langchain-openai
 unstructured
 pypdf
 python-docx
@@ -18,5 +17,5 @@ slowapi
 python-jose
 pydantic-settings
 requests-aws4auth
-openai
+requests
 opensearch-py

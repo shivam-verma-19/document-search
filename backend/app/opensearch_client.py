@@ -4,8 +4,8 @@ import boto3
 import requests
 from requests_aws4auth import AWS4Auth
 
-region = os.getenv("AWS_REGION", "ap-south-1")
-service = "aoss"
+REGION = os.getenv("AWS_REGION", "ap-south-1")
+SERVICE = "aoss"
 
 session = boto3.Session()
 credentials = session.get_credentials()
@@ -18,8 +18,8 @@ if credentials:
     auth = AWS4Auth(
         frozen.access_key,
         frozen.secret_key,
-        region,
-        service,
+        REGION,
+        SERVICE,
         session_token=frozen.token,
     )
 

@@ -124,7 +124,6 @@ def _fake_overrides():
     return {
         "index_document": mock.MagicMock(return_value=None),
         "get_embedding": lambda text: [0.1] * 1536,
-        "OpenAIEmbeddings": lambda: mock.MagicMock(),
     }
 
 

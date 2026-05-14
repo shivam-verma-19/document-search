@@ -5,45 +5,46 @@ from unittest.mock import MagicMock
 
 
 def install_all_stubs():
-    """
-    Install external dependency stubs BEFORE importing app code.
-    This prevents real network/API calls in tests.
-    """
-
-    # =========================
-    # 1. Mock ChatOpenAI (LLM)
-    # =========================
-    class MockLLM:
-        def invoke(self, prompt):
-            # Always return predictable response
-            return MagicMock(content="mocked llm response")
-
-    mock_openai_module = MagicMock()
-    mock_openai_module.ChatOpenAI = MagicMock(return_value=MockLLM())
-    mock_openai_module.OpenAIEmbeddings = MagicMock()
-
-    sys.modules["langchain_openai"] = mock_openai_module
-
-    class MockDoc:
-        def __init__(self, content):
-            self.page_content = content
-
-    class MockVectorStore:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def similarity_search(self, query, k=5):
-            # Return deterministic fake docs
-            return [MockDoc(f"doc content {i} for {query}") for i in range(min(k, 5))]
-
+    # ── OpenSearch ─────────────────────────────────────────────────────────────
     mock_opensearch = MagicMock()
     mock_opensearch.search_similar = MagicMock(
-        return_value=[
-            "mock document 1",
-            "mock document 2",
-            "mock document 3",
-        ]
+        return_value=["mock document 1", "mock document 2", "mock document 3"]
     )
     mock_opensearch.index_document = MagicMock()
-
     sys.modules["backend.app.opensearch_client"] = mock_opensearch
+
+    # ── Bedrock router ─────────────────────────────────────────────────────────
+    # Default result — individual tests override via monkeypatch.
+    _default_result = {
+        "answer": "mocked llm response",
+        "model_used": "llama3-bedrock",
+        "complexity": "simple",
+        "confidence": 0.80,
+        "escalated": False,
+        "attempted": ["llama3-bedrock"],
+        "errors": {},
+    }
+
+    mock_router = MagicMock()
+    mock_router.route_and_invoke = MagicMock(return_value=_default_result)
+    mock_router.CONFIDENCE_THRESHOLD = 0.65
+
+    # Expose real dataclass-like objects so imports in test_bedrock_router work
+    class _ModelResponse:
+        def __init__(self, model, text, success, confidence=0.0, error=None):
+            self.model = model
+            self.text = text
+            self.success = success
+            self.confidence = confidence
+            self.error = error
+
+    mock_router.ModelResponse = _ModelResponse
+    mock_router.classify_complexity = MagicMock()
+    mock_router.score_confidence = MagicMock(return_value=0.80)
+
+    sys.modules["backend.app.bedrock_router"] = mock_router
+
+    # ── Embeddings (Bedrock Titan) ─────────────────────────────────────────────
+    mock_embeddings = MagicMock()
+    mock_embeddings.get_embedding = MagicMock(return_value=[0.1] * 1536)
+    sys.modules["backend.app.embeddings"] = mock_embeddings
