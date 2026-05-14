@@ -53,37 +53,58 @@ def _load_rag(
             "retrieved chunk 3",
         ]
 
+    import backend.app.rag as rag_mod
+
+    importlib.reload(rag_mod)
+
     # Metrics / monitoring
-    monkeypatch.setattr("backend.app.metrics.log_metrics", lambda *a, **k: None)
-    monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a, **k: None)
-    monkeypatch.setattr("backend.app.evaluation.store_eval", lambda *a, **k: None)
-    monkeypatch.setattr("backend.app.utils.log_event", lambda *a, **k: None)
+    monkeypatch.setattr(rag_mod, "log_metrics", lambda *a, **k: None)
+    monkeypatch.setattr(rag_mod, "push_metric", lambda *a, **k: None)
+    monkeypatch.setattr(rag_mod, "store_eval", lambda *a, **k: None)
+    monkeypatch.setattr(rag_mod, "log_event", lambda *a, **k: None)
 
     # Cache
-    monkeypatch.setattr("backend.app.cache.get_cache", lambda q: cache_hit)
-    monkeypatch.setattr("backend.app.cache.set_cache", lambda q, a: None)
+    monkeypatch.setattr(
+        rag_mod,
+        "get_cache",
+        lambda q: cache_hit,
+    )
+
+    monkeypatch.setattr(
+        rag_mod,
+        "set_cache",
+        lambda q, a: None,
+    )
 
     # Embeddings
-    monkeypatch.setattr(
-        "backend.app.embeddings.get_embedding", lambda q: [0.1, 0.2, 0.3]
-    )
+    monkeypatch.setattr(rag_mod, "get_embedding", lambda q: [0.1, 0.2, 0.3])
 
     # OpenSearch
     monkeypatch.setattr(
-        "backend.app.opensearch_client.search_similar",
+        rag_mod,
+        "search_similar",
         lambda embedding, k=5: search_results[:k],
     )
 
     # Reranker
     if rerank_passthrough:
-        monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: docs)
+        monkeypatch.setattr(
+            rag_mod,
+            "rerank",
+            lambda q, docs: docs,
+        )
     else:
-        monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: [])
+        monkeypatch.setattr(
+            rag_mod,
+            "rerank",
+            lambda q, docs: [],
+        )
 
     # Bedrock Router
     if router_raises:
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             mock.MagicMock(side_effect=Exception("router down")),
         )
     else:
@@ -94,14 +115,13 @@ def _load_rag(
             confidence=router_confidence,
             escalated=router_escalated,
         )
+
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             mock.MagicMock(return_value=result),
         )
 
-    import backend.app.rag as rag_mod
-
-    importlib.reload(rag_mod)
     return rag_mod
 
 
@@ -115,32 +135,30 @@ class TestRewriteQuery:
         assert isinstance(result, str)
 
     def test_terse_system_in_prompt(self, monkeypatch):
+        rag_mod = _load_rag(monkeypatch)
+
         spy = mock.MagicMock(return_value=_router_result("rewritten"))
 
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             spy,
         )
-
-        import backend.app.rag as rag_mod
-
-        importlib.reload(rag_mod)
 
         rag_mod.rewrite_query("find docs about AI")
 
         assert isinstance(rag_mod.rewrite_query("find docs about AI"), str)
 
     def test_context_is_empty_string_for_rewrite(self, monkeypatch):
+        rag_mod = _load_rag(monkeypatch)
+
         spy = mock.MagicMock(return_value=_router_result("rewritten"))
 
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             spy,
         )
-
-        import backend.app.rag as rag_mod
-
-        importlib.reload(rag_mod)
 
         result = rag_mod.rewrite_query("query")
 
@@ -183,10 +201,11 @@ class TestHybridSearch:
     def test_returns_empty_on_opensearch_failure(self, monkeypatch):
         rag = _load_rag(monkeypatch)
         monkeypatch.setattr(
-            "backend.app.opensearch_client.search_similar",
+            rag,
+            "search_similar",
             mock.MagicMock(side_effect=Exception("opensearch down")),
         )
-        importlib.reload(rag)
+
         assert isinstance(rag.hybrid_search("query"), list)
 
 
@@ -234,19 +253,27 @@ class TestAskQuestion:
         assert rag.ask_question("") == ""
 
     def test_router_exception_returns_error_string(self, monkeypatch):
-        rag = _load_rag(monkeypatch, search_results=[], router_raises=True)
+        rag = _load_rag(
+            monkeypatch,
+            search_results=[],
+            router_raises=True,
+        )
+
         result = rag.ask_question("question")
+
         assert isinstance(result, str)
 
     def test_cache_written_after_successful_rag(self, monkeypatch):
         written = {}
         rag = _load_rag(monkeypatch, router_answer="stored answer")
         monkeypatch.setattr(
-            "backend.app.cache.set_cache",
+            rag,
+            "set_cache",
             lambda q, a: written.update({q: a}),
         )
-        importlib.reload(rag)
+
         rag.ask_question("cache this")
+
         assert len(written) > 0
 
     def test_exactly_one_doc_triggers_fallback(self, monkeypatch):
@@ -272,36 +299,41 @@ class TestAskQuestion:
         assert "Switching to LLM" not in str(result)
 
     def test_rag_path_passes_context_to_router(self, monkeypatch):
+        rag_mod = _load_rag(monkeypatch)
+
         spy = mock.MagicMock(return_value=_router_result("answer"))
 
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             spy,
         )
-
-        import backend.app.rag as rag_mod
-
-        importlib.reload(rag_mod)
 
         result = rag_mod.ask_question("tell me about AI")
 
         assert isinstance(result, str)
 
+        assert spy.call_args.kwargs["context"] != ""
+
     def test_fallback_path_passes_empty_context(self, monkeypatch):
+        rag_mod = _load_rag(
+            monkeypatch,
+            search_results=[],
+        )
+
         spy = mock.MagicMock(return_value=_router_result("fallback"))
 
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             spy,
         )
-
-        import backend.app.rag as rag_mod
-
-        importlib.reload(rag_mod)
 
         result = rag_mod.ask_question("anything")
 
         assert isinstance(result, str)
+
+        assert spy.call_args.kwargs["context"] == ""
 
     def test_escalated_response_returned_normally(self, monkeypatch):
         rag = _load_rag(
@@ -342,17 +374,18 @@ class TestSummarizeDoc:
         assert isinstance(rag.summarize_doc("doc"), str)
 
     def test_summarize_passes_context_to_router(self, monkeypatch):
+        rag_mod = _load_rag(monkeypatch)
+
         spy = mock.MagicMock(return_value=_router_result("summary"))
 
         monkeypatch.setattr(
-            "backend.app.bedrock_router.route_and_invoke",
+            rag_mod,
+            "route_and_invoke",
             spy,
         )
-
-        import backend.app.rag as rag_mod
-
-        importlib.reload(rag_mod)
 
         result = rag_mod.summarize_doc("doc-id")
 
         assert isinstance(result, str)
+
+        assert spy.call_args.kwargs["context"] != ""

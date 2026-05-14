@@ -187,7 +187,13 @@ def classify_complexity(
 
 
 def score_confidence(query: str, answer: str) -> float:
-    if not answer or not answer.strip():
+    if answer is None:
+        return 0.0
+
+    # important for mocked objects in tests
+    answer = str(answer)
+
+    if not answer.strip():
         return 0.0
 
     score = 0.75
@@ -200,10 +206,12 @@ def score_confidence(query: str, answer: str) -> float:
 
     if answer_words < 10:
         score -= 0.40
-    elif answer_words < 20:
-        score -= 0.15
 
-    if re.search(r"\n[-*•]", answer):
+    elif answer_words < 20:
+        score -= 0.10
+
+    # allow whitespace before bullets
+    if re.search(r"\n\s*[-*•]", answer):
         score += 0.10
 
     if re.search(r"\b\d{4}\b", answer):
@@ -345,9 +353,9 @@ def route_and_invoke(
 
     clf = classify_complexity(query, context)
 
-    # ─── SIMPLE ───────────────────────────────────────────────────────────────
-
-    # ─── SIMPLE ───────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
+    # SIMPLE → Llama first
+    # ─────────────────────────────────────────────────────────────
 
     if clf.complexity == "simple":
         llama = _invoke_llama(prompt)
@@ -391,9 +399,9 @@ def route_and_invoke(
 
         errors[claude.model] = claude.error or "unknown"
 
-    # ─── COMPLEX ──────────────────────────────────────────────────────────────
-
-    # ─── COMPLEX ──────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
+    # COMPLEX → Claude first
+    # ─────────────────────────────────────────────────────────────
 
     else:
         claude = _invoke_claude(prompt)
@@ -403,6 +411,7 @@ def route_and_invoke(
         if claude.success and claude.text:
             conf = score_confidence(query, claude.text)
 
+            # GOOD RESPONSE
             if conf >= CONFIDENCE_THRESHOLD:
                 return RouterResult(
                     answer=claude.text,
@@ -414,7 +423,7 @@ def route_and_invoke(
                     errors=errors,
                 ).to_dict()
 
-            # retry with more tokens
+            # LOW CONFIDENCE → RETRY
             retry = _invoke_claude(
                 prompt,
                 max_tokens=2048,
@@ -443,7 +452,9 @@ def route_and_invoke(
         else:
             errors[claude.model] = claude.error or "unknown"
 
-    # ─── Ollama fallback ──────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────
+    # FINAL OLLAMA FALLBACK
+    # ─────────────────────────────────────────────────────────────
 
     ollama = _invoke_ollama(prompt)
 

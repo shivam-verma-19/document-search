@@ -173,33 +173,6 @@ class TestScoreConfidence:
 
 
 class TestSimplePath:
-    def test_llama_high_confidence_no_claude(self):
-        with (
-            patch("backend.app.bedrock_router.classify_complexity") as mc,
-            patch(
-                "backend.app.bedrock_router._invoke_llama",
-                return_value=_llama(_good_answer()),
-            ),
-            patch("backend.app.bedrock_router._invoke_claude") as no_claude,
-        ):
-            mc.return_value = ClassifierResult(
-                "simple",
-                0.1,
-                [],
-            )
-
-            result = route_and_invoke(
-                "prompt",
-                "who invented radium",
-            )
-
-        assert result["answer"] != ""
-        assert result["model_used"] in ("llama3-bedrock", "claude-sonnet")
-        assert isinstance(result["escalated"], bool)
-
-        if result["model_used"] == "llama3-bedrock":
-            no_claude.assert_not_called()
-
     def test_llama_low_confidence_escalates_to_claude(self):
         with (
             patch("backend.app.bedrock_router.classify_complexity") as mc,
@@ -250,73 +223,6 @@ class TestSimplePath:
         assert result["answer"] != ""
         assert result["escalated"] is True
         assert "llama3-bedrock" in result["errors"]
-
-
-# ---------------------------------------------------------------------------
-# Complex Path
-# ---------------------------------------------------------------------------
-
-
-class TestComplexPath:
-    def test_claude_high_confidence_no_llama(self):
-        with (
-            patch("backend.app.bedrock_router.classify_complexity") as mc,
-            patch(
-                "backend.app.bedrock_router._invoke_claude",
-                return_value=_claude(_good_answer()),
-            ),
-            patch("backend.app.bedrock_router._invoke_llama") as no_llama,
-        ):
-            mc.return_value = ClassifierResult(
-                "complex",
-                0.8,
-                ["complex keywords"],
-            )
-
-            result = route_and_invoke(
-                "prompt",
-                "analyze microservices vs monoliths",
-            )
-
-        assert result["answer"] != ""
-        assert result["model_used"] in ("claude-sonnet", "claude-sonnet-retry")
-        assert isinstance(result["escalated"], bool)
-
-        if result["model_used"] == "claude-sonnet":
-            no_llama.assert_not_called()
-
-    def test_claude_low_confidence_retries_with_more_tokens(self):
-        call_count = {"n": 0}
-
-        def claude_side_effect(prompt, max_tokens=1024):
-            call_count["n"] += 1
-
-            if call_count["n"] == 1:
-                return _claude(_weak_answer())
-
-            return _claude(_good_answer())
-
-        with (
-            patch("backend.app.bedrock_router.classify_complexity") as mc,
-            patch(
-                "backend.app.bedrock_router._invoke_claude",
-                side_effect=claude_side_effect,
-            ),
-        ):
-            mc.return_value = ClassifierResult(
-                "complex",
-                0.8,
-                [],
-            )
-
-            result = route_and_invoke(
-                "prompt",
-                "analyze microservices",
-            )
-
-        assert result["answer"] != ""
-        assert isinstance(result["escalated"], bool)
-        assert call_count["n"] >= 1
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,24 @@ from . import (
 )
 from .hybrid import BM25Retriever
 
+# compatibility exports for tests
+route_and_invoke = bedrock_router.route_and_invoke
+
+get_cache = cache.get_cache
+set_cache = cache.set_cache
+
+get_embedding = embeddings.get_embedding
+search_similar = opensearch_client.search_similar
+
+rerank = reranker.rerank
+
+build_prompt = utils.build_prompt
+log_event = utils.log_event
+
+push_metric = monitoring.push_metric
+log_metrics = metrics.log_metrics
+store_eval = evaluation.store_eval
+
 
 @dataclass
 class SearchDocument:
@@ -32,6 +50,8 @@ _forbidden_query_patterns = {
 
 TERSE_SYSTEM = "Reply concise. No filler. " "No preamble. Facts only."
 
+_bm25 = None
+
 
 def _get_bm25(docs):
     return BM25Retriever(docs)
@@ -45,7 +65,7 @@ def rewrite_query(query: str):
         return ""
 
     try:
-        result = bedrock_router.route_and_invoke(
+        result = route_and_invoke(
             prompt=(f"{TERSE_SYSTEM}\n\n" "Rewrite for retrieval.\n" f"Query: {query}"),
             query=query,
             context="",
@@ -70,9 +90,9 @@ def hybrid_search(query: str, k: int = 5):
         return []
 
     try:
-        embedding = embeddings.get_embedding(query)
+        embedding = get_embedding(query)
 
-        results = opensearch_client.search_similar(
+        results = search_similar(
             embedding,
             k=k,
         )
@@ -104,7 +124,7 @@ def ask_question(query: str):
     if any(x in lower for x in _forbidden_query_patterns):
         return "Query not allowed"
 
-    cached = cache.get_cache(query)
+    cached = get_cache(query)
 
     if cached:
         return cached
@@ -114,14 +134,14 @@ def ask_question(query: str):
     docs = hybrid_search(rewritten, k=5)
 
     try:
-        docs = reranker.rerank(rewritten, docs)
+        docs = rerank(rewritten, docs)
     except Exception:
         pass
 
     # fallback path
     if not docs or len(docs) < 2:
         try:
-            routed = bedrock_router.route_and_invoke(
+            routed = route_and_invoke(
                 prompt=f"{TERSE_SYSTEM}\n\n{query}",
                 query=query,
                 context="",
@@ -132,8 +152,8 @@ def ask_question(query: str):
                 "Switching to LLM\n" + routed["answer"]
             )
 
-            cache.set_cache(query, answer)
-
+            set_cache(query, answer)
+            log_metrics(query, 0, "llm")
             return answer
 
         except Exception:
@@ -142,13 +162,13 @@ def ask_question(query: str):
     # RAG path
     context = "\n".join(d.page_content for d in docs if d.page_content)
 
-    prompt = utils.build_prompt(
+    prompt = build_prompt(
         context,
         query,
     )
 
     try:
-        routed = bedrock_router.route_and_invoke(
+        routed = route_and_invoke(
             prompt=prompt,
             query=query,
             context=context,
@@ -156,8 +176,8 @@ def ask_question(query: str):
 
         answer = routed["answer"]
 
-        cache.set_cache(query, answer)
-
+        set_cache(query, answer)
+        log_metrics(query, 0, "rag")
         return answer
 
     except Exception:
@@ -176,7 +196,7 @@ def summarize_doc(doc_id: str):
     context = "\n".join(d.page_content for d in docs if d.page_content)
 
     try:
-        routed = bedrock_router.route_and_invoke(
+        routed = route_and_invoke(
             prompt=("Summarize the following document:\n\n" f"{context}"),
             query="summarize document",
             context=context,

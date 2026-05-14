@@ -1,8 +1,3 @@
-"""
-Integration tests — wires cache + metrics + RAG path together using moto for
-AWS and lightweight stubs for router / vector-store.
-"""
-
 import importlib
 import os
 import types
