@@ -1,12 +1,10 @@
 """
 Integration tests — wires cache + metrics + RAG path together using moto for
-AWS and lightweight stubs for LLM / vector-store.
+AWS and lightweight stubs for router / vector-store.
 """
 
 import importlib
-import json
 import os
-import sys
 import types
 import unittest.mock as mock
 
@@ -33,6 +31,7 @@ def _doc(text):
 
 def _setup_aws():
     db = boto3.resource("dynamodb", region_name="us-east-1")
+
     for table_name, key in [
         ("rag-cache", "query"),
         ("rag-metrics", "id"),
@@ -44,79 +43,159 @@ def _setup_aws():
             AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
             BillingMode="PAY_PER_REQUEST",
         )
+
     sm = boto3.client("secretsmanager", region_name="us-east-1")
+
     sm.create_secret(
         Name="rag-secrets",
+        SecretString='{"OPENAI_API_KEY":"test"}',
     )
 
 
+def _mock_router(answer="answer"):
+    router_mock = mock.MagicMock()
+
+    router_mock.return_value = {
+        "answer": answer,
+        "model_used": "llama3-bedrock",
+        "complexity": "simple",
+        "confidence": 0.95,
+        "escalated": False,
+        "attempted": ["llama3-bedrock"],
+    }
+
+    return router_mock
+
+
 def _load_rag(monkeypatch, llm_answer="answer"):
-    """Load rag module with mocked clients injected."""
-    monkeypatch.setattr("backend.app.monitoring.push_metric", lambda *a: None)
-    monkeypatch.setattr("backend.app.reranker.rerank", lambda q, docs: docs)
-    monkeypatch.setattr("backend.app.utils.log_event", lambda *a: None)
+    """Load rag module with mocked router and clients injected."""
 
-    llm = mock.MagicMock()
-    llm.invoke.return_value = mock.MagicMock(content=llm_answer)
+    monkeypatch.setattr(
+        "backend.app.monitoring.push_metric",
+        lambda *a, **k: None,
+    )
 
-    vdb = mock.MagicMock()
-    vdb.similarity_search.return_value = [_doc(f"chunk {i}") for i in range(5)]
+    monkeypatch.setattr(
+        "backend.app.reranker.rerank",
+        lambda q, docs: docs,
+    )
 
-    bm25 = mock.MagicMock()
-    bm25.search.return_value = []
+    monkeypatch.setattr(
+        "backend.app.utils.log_event",
+        lambda *a, **k: None,
+    )
+
+    monkeypatch.setattr(
+        "backend.app.embeddings.get_embedding",
+        lambda text: [0.1, 0.2, 0.3],
+    )
+
+    router_mock = _mock_router(llm_answer)
 
     import backend.app.rag as rag_mod
 
     importlib.reload(rag_mod)
-    rag_mod._bm25 = bm25
 
-    return rag_mod
+    monkeypatch.setattr(
+        rag_mod,
+        "route_and_invoke",
+        router_mock,
+    )
+
+    # fake vector results
+    monkeypatch.setattr(
+        rag_mod,
+        "hybrid_search",
+        lambda query, k=5: [_doc(f"chunk {i}") for i in range(5)],
+    )
+
+    rag_mod._bm25 = mock.MagicMock()
+
+    return rag_mod, router_mock
 
 
 class TestIntegration:
     @mock_aws
     def test_second_identical_query_uses_cache(self, monkeypatch):
-        """Same question asked twice — the second call must hit DynamoDB cache."""
+        """
+        Same question asked twice — second call should hit cache
+        and avoid another router invocation.
+        """
+
         _setup_aws()
-        rag = _load_rag(monkeypatch, llm_answer="first answer")
+
+        rag, router_mock = _load_rag(
+            monkeypatch,
+            llm_answer="first answer",
+        )
 
         first = rag.ask_question("what is machine learning?")
         second = rag.ask_question("what is machine learning?")
 
         assert first == second
-        # LLM should only fire for rewrite + one generate (not twice)
-        assert rag._llm.invoke.call_count <= 3  # type: ignore
+
+        # first request only
+        assert router_mock.call_count <= 2
 
     @mock_aws
     def test_metrics_written_after_rag_query(self, monkeypatch):
-        """A successful RAG query must persist at least one metrics row."""
+        """
+        Successful RAG query should write metrics.
+        """
+
         _setup_aws()
-        rag = _load_rag(monkeypatch, llm_answer="answer")
+
+        rag, _ = _load_rag(
+            monkeypatch,
+            llm_answer="answer",
+        )
 
         rag.ask_question("unique integration query xyz")
 
         from backend.app.metrics import get_metrics
 
         items = get_metrics()
-        queries = [i["query"] for i in items]
-        assert any("unique integration query xyz" in str(q) for q in queries)
+
+        queries = [str(i.get("query", "")) for i in items]
+
+        assert any("unique integration query xyz" in q for q in queries)
 
     @mock_aws
-    def test_different_queries_get_independent_cache_entries(self, monkeypatch):
+    def test_different_queries_get_independent_cache_entries(
+        self,
+        monkeypatch,
+    ):
         _setup_aws()
-        rag = _load_rag(monkeypatch)
 
-        rag._llm.invoke.return_value = mock.MagicMock(content="answer A")  # type: ignore
+        rag, router_mock = _load_rag(monkeypatch)
+
+        router_mock.return_value = {
+            "answer": "answer A",
+            "model_used": "llama3-bedrock",
+            "complexity": "simple",
+            "confidence": 0.9,
+            "escalated": False,
+            "attempted": ["llama3-bedrock"],
+        }
+
         rag.ask_question("query alpha")
 
-        rag._llm.invoke.return_value = mock.MagicMock(content="answer B")  # type: ignore
+        router_mock.return_value = {
+            "answer": "answer B",
+            "model_used": "llama3-bedrock",
+            "complexity": "simple",
+            "confidence": 0.9,
+            "escalated": False,
+            "attempted": ["llama3-bedrock"],
+        }
+
         rag.ask_question("query beta")
 
-        # Both are in cache independently
         from backend.app.cache import get_cache
 
         a = get_cache("query alpha")
         b = get_cache("query beta")
+
         assert a is not None
         assert b is not None
         assert a != b
