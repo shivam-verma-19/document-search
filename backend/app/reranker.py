@@ -10,7 +10,7 @@ _bedrock_client = None
 def _get_client():
     global _bedrock_client
     if _bedrock_client is None:
-        _bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+        _bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION) #type: ignore
     return _bedrock_client
 
 
@@ -23,8 +23,8 @@ def rerank(query: str, docs: list) -> list:
             "type": "INLINE",
             "inlineDocumentSource": {
                 "type": "TEXT",
-                "textDocument": {"text": doc.page_content}
-            }
+                "textDocument": {"text": doc.page_content},
+            },
         }
         for doc in docs
     ]
@@ -36,10 +36,10 @@ def rerank(query: str, docs: list) -> list:
                 "modelConfiguration": {
                     "modelArn": f"arn:aws:bedrock:{AWS_REGION}::foundation-model/amazon.rerank-v1:0"
                 }
-            }
+            },
         },
         sources=text_sources,
-        queries=[{"type": "TEXT", "textQuery": {"text": query}}]
+        queries=[{"type": "TEXT", "textQuery": {"text": query}}],
     )
 
     ranked_indices = [item["index"] for item in response["rerankingResults"]]
