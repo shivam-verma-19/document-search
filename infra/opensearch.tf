@@ -46,7 +46,6 @@ resource "aws_opensearchserverless_access_policy" "access" {
     }]
     Principal = [
       aws_iam_role.lambda_role.arn,
-      aws_iam_role.worker_lambda_role.arn
     ]
   }])
 }
