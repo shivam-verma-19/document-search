@@ -75,9 +75,13 @@ resource "aws_iam_policy" "lambda_policy" {
           "sqs:SendMessage",
           "sqs:ReceiveMessage",
           "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes"
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl"
         ]
-        Resource = aws_sqs_queue.rag_queue.arn
+        Resource = [
+          aws_sqs_queue.rag_queue.arn,
+          aws_sqs_queue.dlq.arn
+        ]
       },
 
       ##################################
