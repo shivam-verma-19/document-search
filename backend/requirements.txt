@@ -5,11 +5,8 @@ langchain
 unstructured
 pypdf
 python-docx
-sentence-transformers
 rank_bm25
 langchain-text-splitters
-pytest
-moto
 python-multipart
 mangum
 PyJWT

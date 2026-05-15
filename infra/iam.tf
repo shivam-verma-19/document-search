@@ -81,18 +81,19 @@ resource "aws_iam_policy" "lambda_policy" {
       },
 
       ##################################
-      # Secrets Manager (API keys)
+      # Secrets Manager
+      # ✅ FIX 10: removed duplicate — was also in inline policy below
       ##################################
       {
         Effect = "Allow"
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "*"
+        Resource = aws_secretsmanager_secret.rag_secrets.arn
       },
 
       ##################################
-      # OpenSearch Serverless (CRITICAL)
+      # OpenSearch Serverless
       ##################################
       {
         Effect = "Allow"
@@ -100,6 +101,21 @@ resource "aws_iam_policy" "lambda_policy" {
           "aoss:APIAccessAll"
         ]
         Resource = "*"
+      },
+
+      ##################################
+      # ✅ FIX 8: Bedrock — was missing entirely
+      # bedrock_router.py calls bedrock-runtime for Claude + Llama
+      ##################################
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel"
+        ]
+        Resource = [
+          "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5",
+          "arn:aws:bedrock:*::foundation-model/meta.llama3-8b-instruct-v1:0"
+        ]
       }
     ]
   })
@@ -111,49 +127,4 @@ resource "aws_iam_policy" "lambda_policy" {
 resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.lambda_policy.arn
-}
-
-########################################
-# 🔹 SECRETS ACCESS INLINE POLICY
-########################################
-resource "aws_iam_role_policy" "secrets_access" {
-  name = "lambda-secrets-access"
-  role = aws_iam_role.lambda_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "secretsmanager:GetSecretValue"
-      ]
-      Resource = aws_secretsmanager_secret.rag_secrets.arn
-    }]
-  })
-}
-
-########################################
-# 🔹 API LAMBDA ROLE
-########################################
-resource "aws_iam_role" "api_lambda_role" {
-  name = "${var.project_name}-api-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-########################################
-# 🔹 WORKER LAMBDA ROLE
-########################################
-resource "aws_iam_role" "worker_lambda_role" {
-  name = "${var.project_name}-worker-role"
-  assume_role_policy = aws_iam_role.api_lambda_role.assume_role_policy
 }
