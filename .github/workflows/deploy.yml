@@ -124,24 +124,43 @@ jobs:
       - name: Create Lambda Deployment Zip
         run: |
           cd backend
-              
-          # Install dependencies into isolated folder
+
+          # Clean old artifacts
+          rm -rf package
+          rm -f deployment.zip
+
+          mkdir package
+
+          # Install dependencies
           pip install -r requirements.txt --target ./package --upgrade
-              
-          # Copy app source code
+
+          # Copy source code
           cp -r app ./package/
-              
-          # Zip from inside package (so Lambda can find app.main.handler)
+
+          # Optional handler copy
+          cp lambda_handler.py ./package/ 2>/dev/null || true
+
+          # Create deployment package
           cd package
+
           zip -r ../deployment.zip . \
             -x "*__pycache__*" \
+            -x "*.pyc" \
             -x "*.pytest_cache*" \
-            -x "*.dist-info/*" \
-            -x "*.egg-info/*"
-              
-          # Log the size so you can monitor it
+            -x ".DS_Store"
+
           cd ..
+
+          echo "Deployment package size:"
           ls -lh deployment.zip
+
+          # Fail if package too large
+          SIZE=$(du -m deployment.zip | cut -f1)
+
+          if [ "$SIZE" -gt 50 ]; then
+            echo "ERROR: Lambda zip exceeds 50MB limit"
+            exit 1
+          fi
         
       - name: Terraform Plan
         run: terraform plan
@@ -150,13 +169,3 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve
         working-directory: infra
-
-      - name: Update Lambda
-        run: |
-          aws lambda update-function-code \
-            --function-name rag-platform-api \
-            --zip-file fileb://backend/deployment.zip
-
-          aws lambda update-function-code \
-            --function-name rag-platform-ingest-worker \
-            --zip-file fileb://backend/deployment.zip
