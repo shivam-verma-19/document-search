@@ -1,4 +1,8 @@
 resource "aws_lambda_function" "rag_api" {
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_iam_role_policy_attachment.lambda_policy_attach
+  ]
   function_name = "${var.project_name}-api"
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
@@ -27,6 +31,10 @@ resource "aws_lambda_function" "rag_api" {
 }
 
 resource "aws_lambda_function" "rag_ingest_worker" {
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_iam_role_policy_attachment.lambda_policy_attach
+  ]
   function_name = "${var.project_name}-ingest-worker"
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)

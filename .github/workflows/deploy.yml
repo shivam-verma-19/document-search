@@ -27,7 +27,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10'
           cache: 'pip'
 
       - name: Install dependencies
@@ -55,7 +55,7 @@ jobs:
 
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10'
           cache: 'pip'
 
       - name: Install dependencies
@@ -116,14 +116,32 @@ jobs:
         run: terraform validate
         working-directory: infra
 
+      - name: Setup Python for packaging
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'  
+
       - name: Create Lambda Deployment Zip
         run: |
           cd backend
-          zip -r deployment.zip . \
-            -x "*.git*" \
+              
+          # Install dependencies into isolated folder
+          pip install -r requirements.txt --target ./package --upgrade
+              
+          # Copy app source code
+          cp -r app ./package/
+              
+          # Zip from inside package (so Lambda can find app.main.handler)
+          cd package
+          zip -r ../deployment.zip . \
             -x "*__pycache__*" \
             -x "*.pytest_cache*" \
-            -x "*.venv*"
+            -x "*.dist-info/*" \
+            -x "*.egg-info/*"
+              
+          # Log the size so you can monitor it
+          cd ..
+          ls -lh deployment.zip
         
       - name: Terraform Plan
         run: terraform plan
@@ -136,5 +154,9 @@ jobs:
       - name: Update Lambda
         run: |
           aws lambda update-function-code \
-            --function-name rag-api \
+            --function-name rag-platform-api \
+            --zip-file fileb://backend/deployment.zip
+
+          aws lambda update-function-code \
+            --function-name rag-platform-ingest-worker \
             --zip-file fileb://backend/deployment.zip

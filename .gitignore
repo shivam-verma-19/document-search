@@ -6,7 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+backend/package/
 backend/deployment.zip
+layer.zip
 .env
 *.pyc
 __pycache__/
