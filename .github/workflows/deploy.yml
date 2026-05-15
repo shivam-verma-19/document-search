@@ -132,26 +132,37 @@ jobs:
           mkdir package
 
           # Install dependencies
-          pip install -r requirements.txt --target ./package --upgrade
-
-          # Copy source code
+          pip install -r requirements.txt \
+            --target ./package \
+            --no-deps \
+            --upgrade
+              
+          # Remove PyTorch and sentence-transformers (handled by Bedrock)
+          rm -rf ./package/torch
+          rm -rf ./package/torchvision
+          rm -rf ./package/torchaudio
+          rm -rf ./package/sentence_transformers
+          rm -rf ./package/transformers
+          rm -rf ./package/tokenizers
+          rm -rf ./package/huggingface_hub
+          rm -rf ./package/safetensors
+          rm -rf ./package/nvidia*
+          rm -rf ./package/*.dist-info
+          rm -rf ./package/*.egg-info
+              
           cp -r app ./package/
-
-          # Optional handler copy
-          cp lambda_handler.py ./package/ 2>/dev/null || true
-
-          # Create deployment package
+              
           cd package
-
           zip -r ../deployment.zip . \
             -x "*__pycache__*" \
             -x "*.pyc" \
-            -x "*.pytest_cache*" \
-            -x ".DS_Store"
-
+            -x "*.dist-info/*" \
+            -x "*.egg-info/*" \
+            -x "torch/*" \
+            -x "transformers/*" \
+            -x "sentence_transformers/*"
+              
           cd ..
-
-          echo "Deployment package size:"
           ls -lh deployment.zip
 
           # Fail if package too large

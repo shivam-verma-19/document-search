@@ -16,3 +16,5 @@ pydantic-settings
 requests-aws4auth
 requests
 opensearch-py
+pytest
+moto
