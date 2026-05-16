@@ -17,7 +17,6 @@ import importlib
 import json
 import os
 import sys
-import types
 from unittest.mock import MagicMock, patch
 
 import boto3
@@ -32,7 +31,7 @@ os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
 
 
 # ---------------------------------------------------------------------------
-# Stub heavy deps before importing processor
+# Stub PyPDF before importing processor (no longer need unstructured stub)
 # ---------------------------------------------------------------------------
 
 
@@ -41,15 +40,16 @@ def _stub_if_missing(name, obj):
         sys.modules[name] = obj
 
 
-_stub_unstructured_pkg = types.ModuleType("unstructured")
-_stub_partition_mod = types.ModuleType("unstructured.partition")
-_stub_auto_mod = types.ModuleType("unstructured.partition.auto")
-_stub_auto_mod.partition = lambda **kwargs: [
-    types.SimpleNamespace(text="extracted text")
-]
-_stub_if_missing("unstructured", _stub_unstructured_pkg)
-_stub_if_missing("unstructured.partition", _stub_partition_mod)
-_stub_if_missing("unstructured.partition.auto", _stub_auto_mod)
+# Mock PyPDF reader
+class MockPdfReader:
+    def __init__(self, file=None):
+        self.pages = [MagicMock(extract_text=lambda: "extracted pdf text")]
+
+
+# Create a mock module for pypdf
+_stub_pypdf_module = MagicMock()
+_stub_pypdf_module.PdfReader = MockPdfReader
+_stub_if_missing("pypdf", _stub_pypdf_module)
 
 _stub_if_missing("langchain_openai", MagicMock())
 
@@ -106,6 +106,38 @@ class TestProcessorIdempotency:
 
 
 # ===========================================================================
+# processor – extract_text_from_file
+# ===========================================================================
+
+
+class TestExtractTextFromFile:
+    def test_pdf_extraction(self):
+        proc = _reload_processor()
+        result = proc.extract_text_from_file(b"pdf bytes", "document.pdf")
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_plaintext_extraction(self):
+        proc = _reload_processor()
+        content = b"Hello world text"
+        result = proc.extract_text_from_file(content, "document.txt")
+        assert result == "Hello world text"
+
+    def test_csv_extraction(self):
+        proc = _reload_processor()
+        content = b"col1,col2\nval1,val2"
+        result = proc.extract_text_from_file(content, "data.csv")
+        assert result == "col1,col2\nval1,val2"
+
+    def test_invalid_utf8_is_handled(self):
+        proc = _reload_processor()
+        content = b"\xff\xfe invalid"
+        result = proc.extract_text_from_file(content, "bad.txt")
+        # Should not raise, but return some text (errors='ignore')
+        assert isinstance(result, str)
+
+
+# ===========================================================================
 # processor – process_file_from_s3
 # ===========================================================================
 
@@ -125,9 +157,9 @@ class TestProcessFileFromS3:
         s3.put_object(Bucket="my-bucket", Key="uploads/blank.txt", Body=b"   ")
 
         proc = _reload_processor()
-        blank_el = types.SimpleNamespace(text="")
 
-        with patch("backend.app.processor.partition", return_value=[blank_el]):
+        # Mock extract_text_from_file to return empty string
+        with patch("backend.app.processor.extract_text_from_file", return_value=""):
             result = proc.process_file_from_s3("my-bucket", "uploads/blank.txt")
 
         assert result["status"] == "empty"
@@ -146,12 +178,15 @@ class TestProcessFileFromS3:
             }
         )
 
-        el = types.SimpleNamespace(text="hello world text")
-        with patch("backend.app.processor.partition", return_value=[el]):
+        # Mock extract_text_from_file to return test text
+        with patch(
+            "backend.app.processor.extract_text_from_file",
+            return_value="hello world text",
+        ):
             result = proc.process_file_from_s3("my-bucket", "user1/doc.txt")
 
         assert result["status"] == "processed"
-        assert result["chunks"] >= 1
+        assert isinstance(result["chunks"], int) and result["chunks"] >= 1
         assert len(index_calls) >= 1
 
     @mock_aws
@@ -167,8 +202,9 @@ class TestProcessFileFromS3:
             }
         )
 
-        el = types.SimpleNamespace(text="some content")
-        with patch("backend.app.processor.partition", return_value=[el]):
+        with patch(
+            "backend.app.processor.extract_text_from_file", return_value="some content"
+        ):
             proc.process_file_from_s3("my-bucket", "user1/doc.txt")
 
         assert proc.already_processed("user1/doc.txt")
@@ -187,8 +223,9 @@ class TestProcessFileFromS3:
             }
         )
 
-        el = types.SimpleNamespace(text="content")
-        with patch("backend.app.processor.partition", return_value=[el]):
+        with patch(
+            "backend.app.processor.extract_text_from_file", return_value="content"
+        ):
             proc.process_file_from_s3("my-bucket", "user1/doc.txt")
             calls_after_first = len(index_calls)
             result = proc.process_file_from_s3("my-bucket", "user1/doc.txt")

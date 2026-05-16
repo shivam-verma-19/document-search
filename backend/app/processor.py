@@ -5,14 +5,14 @@ from io import BytesIO
 import boto3
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from unstructured.partition.auto import partition
+from pypdf import PdfReader
 
 from .config import get_settings
 from .embeddings import get_embedding
 from .opensearch_client import index_document
 
 settings = get_settings()
-s3 = boto3.client("s3")
+s3 = boto3.client("s3")  # type: ignore
 
 # =========================
 # ✅ IDEMPOTENCY (TEMP - IN MEMORY)
@@ -26,6 +26,30 @@ def already_processed(key: str) -> bool:
 
 def mark_processed(key: str):
     processed_files.add(key)
+
+
+# =========================
+# ✅ FILE EXTRACTION
+# =========================
+def extract_text_from_file(content: bytes, filename: str) -> str:
+    """Extract text from file based on extension."""
+    if filename.lower().endswith(".pdf"):
+        return _extract_from_pdf(content)
+    else:
+        # Fallback for txt, csv, etc. — read as plain text
+        return content.decode("utf-8", errors="ignore")
+
+
+def _extract_from_pdf(content: bytes) -> str:
+    """Extract text from PDF using PyPDF."""
+    try:
+        reader = PdfReader(BytesIO(content))
+        text = "\n".join([page.extract_text() for page in reader.pages])
+        return text
+    except Exception as e:
+        # Log or handle PDF parse errors
+        print(f"Error parsing PDF: {e}")
+        return ""
 
 
 # =========================
@@ -43,13 +67,9 @@ def process_file_from_s3(bucket: str, key: str):
     content = obj["Body"].read()
 
     # =========================
-    # PARSE FILE CONTENT
+    # EXTRACT TEXT FROM FILE
     # =========================
-    file_obj = BytesIO(content)
-
-    elements = partition(file=file_obj)
-
-    text = "\n".join([el.text for el in elements if el.text])
+    text = extract_text_from_file(content, key)
 
     if not text.strip():
         return {"status": "empty", "key": key}

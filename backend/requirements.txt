@@ -2,7 +2,6 @@ fastapi
 uvicorn
 boto3
 langchain
-unstructured
 pypdf
 rank_bm25
 langchain-text-splitters

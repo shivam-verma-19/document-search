@@ -12,6 +12,5 @@ slowapi
 uvicorn
 python-jose
 rank_bm25
-unstructured
 PyJWT
 python-multipart

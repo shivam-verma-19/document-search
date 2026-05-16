@@ -1,8 +1,7 @@
 """
 Tests for backend/app/ingest.py
 
-`unstructured` is a heavy optional dependency not available in all CI
-environments. It is stubbed at the sys.modules level before any app import.
+No heavy optional dependencies required — unstructured is no longer needed.
 """
 
 import io
@@ -21,27 +20,6 @@ from moto import mock_aws
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
-
-
-# ---------------------------------------------------------------------------
-# Stub `unstructured` before any app import touches it
-# ---------------------------------------------------------------------------
-
-
-def _install_unstructured_stub():
-    if "unstructured" in sys.modules:
-        return
-    pkg = types.ModuleType("unstructured")
-    partition_mod = types.ModuleType("unstructured.partition")
-    auto_mod = types.ModuleType("unstructured.partition.auto")
-    fake_element = types.SimpleNamespace(text="extracted text")
-    setattr(auto_mod, "partition", lambda **kwargs: [fake_element])
-    sys.modules["unstructured"] = pkg
-    sys.modules["unstructured.partition"] = partition_mod
-    sys.modules["unstructured.partition.auto"] = auto_mod
-
-
-_install_unstructured_stub()
 
 
 # ---------------------------------------------------------------------------

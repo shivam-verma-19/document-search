@@ -1,8 +1,8 @@
 """
 Tests for backend/app/main.py – FastAPI route layer.
 
-Heavy optional packages (unstructured, sentence_transformers) are stubbed at
-sys.modules level so these tests run in any CI environment.
+Heavy optional packages are no longer needed since unstructured was replaced
+with PyPDF. Tests run in any CI environment.
 """
 
 import importlib
@@ -17,11 +17,6 @@ os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 os.environ.setdefault("QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/q")
-
-# Install stubs BEFORE any backend import
-from . import _stubs
-
-_stubs.install_all_stubs()
 
 AUTH_HEADER = {"Authorization": "Bearer test-token"}
 
