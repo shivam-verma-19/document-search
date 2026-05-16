@@ -3,7 +3,7 @@ resource "aws_lambda_function" "rag_api" {
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
-  handler = "app.main.handler"
+  handler = "backend.app.main.handler"
   runtime = "python3.10"
   role    = aws_iam_role.lambda_role.arn
 
@@ -43,7 +43,7 @@ resource "aws_lambda_function" "rag_ingest_worker" {
   filename         = var.lambda_zip_path
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
-  handler = "app.worker_lambda.handler"
+  handler = "backend.app.worker_lambda.handler"
   runtime = "python3.10"
   role    = aws_iam_role.lambda_role.arn
 
@@ -72,5 +72,10 @@ resource "aws_lambda_function" "rag_ingest_worker" {
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.rag_api.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "worker_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.rag_ingest_worker.function_name}"
   retention_in_days = 7
 }

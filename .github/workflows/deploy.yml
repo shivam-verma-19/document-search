@@ -129,7 +129,7 @@ jobs:
           rm -rf package
           rm -f deployment.zip
 
-          mkdir package
+          mkdir -p ./package/backend
 
           # Install dependencies
           pip install -r requirements.txt \
@@ -149,8 +149,9 @@ jobs:
           rm -rf ./package/nvidia*
           rm -rf ./package/*.dist-info
           rm -rf ./package/*.egg-info
-              
-          cp -r app ./package/
+          
+          cp __init__.py ./package/backend/__init__.py
+          cp -r app ./package/backend
               
           cd package
           zip -r ../deployment.zip . \
