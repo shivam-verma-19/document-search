@@ -132,7 +132,7 @@ jobs:
           mkdir -p ./package/backend
 
           # Install dependencies
-          pip install -r requirements.txt \
+          pip install -r requirements-lambda.txt \
             --target ./package \
             --upgrade
               
