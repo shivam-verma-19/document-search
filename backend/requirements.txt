@@ -4,7 +4,6 @@ boto3
 langchain
 unstructured
 pypdf
-python-docx
 rank_bm25
 langchain-text-splitters
 python-multipart
