@@ -134,33 +134,3 @@ resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.lambda_policy.arn
 }
-
-resource "aws_iam_user_policy" "user101_waf" {
-  name = "user101-waf-policy"
-  user = "user101"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "wafv2:CreateWebACL",
-          "wafv2:DeleteWebACL",
-          "wafv2:UpdateWebACL",
-          "wafv2:GetWebACL",
-          "wafv2:ListWebACLs",
-          "wafv2:AssociateWebACL",
-          "wafv2:DisassociateWebACL",
-          "wafv2:GetWebACLForResource",
-          "wafv2:PutLoggingConfiguration",
-          "wafv2:GetLoggingConfiguration",
-          "wafv2:DeleteLoggingConfiguration",
-          "wafv2:ListAvailableManagedRuleGroups",
-          "wafv2:CheckCapacity"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
