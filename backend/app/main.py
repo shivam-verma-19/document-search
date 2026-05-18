@@ -12,10 +12,35 @@ from .auth import optional_auth, verify_cognito_token, verify_token
 from .config import get_settings
 from .metrics import get_metrics
 from .rag import ask_question, summarize_doc
+from fastapi.responses import JSONResponse
+from .errors import RAGException, ErrorResponse
 
 settings = get_settings()
 
 app = FastAPI()
+
+# ========================================
+# EXCEPTION HANDLERS
+# ========================================
+
+@app.exception_handler(RAGException)
+async def rag_exception_handler(request: Request, exc: RAGException):
+    """Handle custom RAG exceptions with structured responses."""
+    error_response = ErrorResponse.from_exception(exc)
+    return JSONResponse(
+        status_code=error_response.status_code,
+        content={"error": error_response.error}
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catch any unexpected exceptions and return structured error."""
+    error_response = ErrorResponse.from_unknown_error(exc)
+    return JSONResponse(
+        status_code=error_response.status_code,
+        content={"error": error_response.error}
+    )
 
 
 # =========================
@@ -128,7 +153,6 @@ def summary(
 @app.get("/metrics")
 def metrics(request: Request, user: dict = Depends(verify_cognito_token)):
     return get_metrics()
-
 
 # =========================
 # LAMBDA HANDLER

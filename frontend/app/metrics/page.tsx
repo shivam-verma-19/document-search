@@ -1,28 +1,48 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import axios from "axios";
+import { useEffect } from "react";
+import { useApi } from "../../hooks/useAPI";
 
 export default function MetricsPage() {
-  const [data, setData] = useState<any[]>([]);
+  const api = useApi();
 
   useEffect(() => {
-    axios.get("/api/metrics").then((res) => {
-      setData(res.data);
-    });
+    api.get("/metrics");
   }, []);
 
   return (
     <div style={{ padding: "20px" }}>
       <h1>📊 Metrics Dashboard</h1>
 
-      {data.length === 0 && <p>No data available</p>}
+      {api.loading && <p>Loading...</p>}
 
-      {data.map((item, idx) => (
-        <div key={idx} style={{ marginBottom: "10px", borderBottom: "1px solid #ccc" }}>
-          <p><b>Query:</b> {item.query}</p>
-          <p><b>Latency:</b> {item.latency?.toFixed(3)} sec</p>
-          <p><b>Source:</b> {item.source}</p>
+      {api.error && (
+        <p style={{ color: "red" }}>
+          {api.error.message}
+          {api.error.retryable && (
+            <button onClick={() => api.get("/metrics")} style={{ marginLeft: 8 }}>
+              Retry
+            </button>
+          )}
+        </p>
+      )}
+
+      {api.data && api.data.length === 0 && <p>No data available</p>}
+
+      {api.data?.map((item: any, idx: number) => (
+        <div
+          key={idx}
+          style={{ marginBottom: "10px", borderBottom: "1px solid #ccc" }}
+        >
+          <p>
+            <b>Query:</b> {item.query}
+          </p>
+          <p>
+            <b>Latency:</b> {item.latency?.toFixed(3)} sec
+          </p>
+          <p>
+            <b>Source:</b> {item.source}
+          </p>
         </div>
       ))}
     </div>

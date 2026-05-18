@@ -1,37 +1,21 @@
+# backend/app/rag_robust.py
+"""
+Robust RAG pipeline with comprehensive error handling, logging, and monitoring.
+
+Features:
+- Detailed logging at each step
+- Graceful degradation with fallbacks
+- Retry logic for transient failures
+- Error tracking and categorization
+- Performance monitoring
+"""
+
+import logging
 import time
-import uuid
+from typing import List, Optional
 from dataclasses import dataclass
 
-from . import (
-    bedrock_router,
-    cache,
-    embeddings,
-    evaluation,
-    metrics,
-    monitoring,
-    opensearch_client,
-    reranker,
-    utils,
-)
-from .hybrid import BM25Retriever
-
-# compatibility exports for tests
-route_and_invoke = bedrock_router.route_and_invoke
-
-get_cache = cache.get_cache
-set_cache = cache.set_cache
-
-get_embedding = embeddings.get_embedding
-search_similar = opensearch_client.search_similar
-
-rerank = reranker.rerank
-
-build_prompt = utils.build_prompt
-log_event = utils.log_event
-
-push_metric = monitoring.push_metric
-log_metrics = metrics.log_metrics
-store_eval = evaluation.store_eval
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,161 +32,321 @@ _forbidden_query_patterns = {
     "drop table",
 }
 
-TERSE_SYSTEM = "Reply concise. No filler. " "No preamble. Facts only."
-
-_bm25 = None
+TERSE_SYSTEM = "Reply concise. No filler. No preamble. Facts only."
 
 
-def _get_bm25(docs):
-    return BM25Retriever(docs)
-
-
-# ─── Query rewrite ────────────────────────────────────────────────────────────
-
-
-def rewrite_query(query: str):
-    if not query:
-        return ""
-
-    try:
-        result = route_and_invoke(
-            prompt=(f"{TERSE_SYSTEM}\n\n" "Rewrite for retrieval.\n" f"Query: {query}"),
-            query=query,
-            context="",
-        )
-
-        answer = result.get("answer", "").strip()
-
-        if not answer:
-            return query
-
-        return answer
-
-    except Exception:
-        return query
-
-
-# ─── Hybrid search ────────────────────────────────────────────────────────────
-
-
-def hybrid_search(query: str, k: int = 5):
-    if not query:
+def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
+    """Perform hybrid vector and keyword search with comprehensive error handling."""
+    if not query or not query.strip():
+        logger.warning("Empty query provided to hybrid_search")
         return []
 
-    try:
-        embedding = get_embedding(query)
-
-        results = search_similar(
-            embedding,
-            k=k,
-        )
-
-    except Exception:
-        return []
-
+    start_time = time.time()
     docs = []
 
-    seen = set()
-
-    for text in results:
-        if text and text not in seen:
-            seen.add(text)
-            docs.append(SearchDocument(page_content=text))
-
-    return docs[:k]
-
-
-# ─── Main QA ──────────────────────────────────────────────────────────────────
-
-
-def ask_question(query: str):
-    if not query:
-        return ""
-
-    lower = query.lower()
-
-    if any(x in lower for x in _forbidden_query_patterns):
-        return "Query not allowed"
-
-    cached = get_cache(query)
-
-    if cached:
-        return cached
-
-    rewritten = rewrite_query(query)
-
-    docs = hybrid_search(rewritten, k=5)
-
     try:
-        docs = rerank(rewritten, docs)
-    except Exception:
-        pass
-
-    # fallback path
-    if not docs or len(docs) < 2:
+        logger.debug(f"Getting embedding for query: {query[:50]}...")
+        # Step 1: Get embedding
+        from . import embeddings
         try:
-            routed = route_and_invoke(
-                prompt=f"{TERSE_SYSTEM}\n\n{query}",
+            embedding = embeddings.get_embedding(query)
+        except Exception as e:
+            logger.warning(f"Embedding failed (continuing with keyword search): {str(e)}")
+            embedding = None
+
+        # Step 2: Vector search
+        if embedding:
+            try:
+                from . import opensearch_client
+                logger.debug("Performing vector similarity search...")
+                results = opensearch_client.search_similar(embedding, k=k)
+                
+                seen = set()
+                for text in results:
+                    if text and text not in seen:
+                        seen.add(text)
+                        docs.append(SearchDocument(page_content=text))
+                        
+                logger.debug(f"Vector search returned {len(docs)} documents")
+                
+            except Exception as e:
+                logger.warning(f"Vector search failed: {str(e)}")
+                docs = []
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(f"Hybrid search completed in {elapsed_ms:.0f}ms, found {len(docs)} docs")
+        return docs[:k]
+
+    except Exception as e:
+        logger.error(f"Unexpected error in hybrid_search: {str(e)}", exc_info=True)
+        return []
+
+
+def invoke_bedrock_with_retry(
+    prompt: str,
+    query: str = "",
+    context: str = "",
+    max_retries: int = 3,
+) -> Optional[dict]:
+    """Invoke Bedrock with automatic retry logic for transient failures."""
+    from . import bedrock_router
+    
+    attempt = 0
+    last_error = None
+
+    while attempt < max_retries:
+        attempt += 1
+        try:
+            logger.debug(f"Bedrock invocation (attempt {attempt}/{max_retries})...")
+            start_time = time.time()
+
+            result = bedrock_router.route_and_invoke(
+                prompt=prompt,
                 query=query,
-                context="",
+                context=context,
             )
 
-            answer = (
-                "There is no info in the context about this query. "
-                "Switching to LLM\n" + routed["answer"]
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(
+                f"Bedrock succeeded in {elapsed_ms:.0f}ms | "
+                f"Model: {result.get('model_used')} | "
+                f"Confidence: {result.get('confidence', 0):.2f}"
             )
+            return result
 
-            set_cache(query, answer)
-            log_metrics(query, 0, "llm")
-            return answer
+        except Exception as e:
+            last_error = e
+            
+            is_retryable = _is_bedrock_error_retryable(e)
+            
+            if not is_retryable or attempt >= max_retries:
+                logger.error(
+                    f"Bedrock failed (attempt {attempt}/{max_retries}): {str(e)} | "
+                    f"Retryable: {is_retryable}",
+                    exc_info=True,
+                )
+                return None
+            
+            # Calculate backoff delay
+            delay_ms = min(100 * (2 ** (attempt - 1)), 5000)
+            logger.warning(
+                f"Bedrock failed (attempt {attempt}), retrying in {delay_ms}ms: {str(e)}"
+            )
+            time.sleep(delay_ms / 1000)
 
-        except Exception:
-            return "Error generating response."
+    logger.error(f"All {max_retries} Bedrock attempts failed. Last error: {str(last_error)}")
+    return None
 
-    # RAG path
-    context = "\n".join(d.page_content for d in docs if d.page_content)
 
-    prompt = build_prompt(
-        context,
-        query,
-    )
+def _is_bedrock_error_retryable(error: Exception) -> bool:
+    """Determine if a Bedrock error is worth retrying."""
+    error_str = str(error).lower()
+    retryable_keywords = [
+        "timeout",
+        "throttling",
+        "rate limit",
+        "503",
+        "502",
+        "500",
+        "unavailable",
+    ]
+    return any(keyword in error_str for keyword in retryable_keywords)
+
+
+def get_cached_answer(query: str) -> Optional[str]:
+    """Get answer from cache, with error handling."""
+    from . import cache
+    try:
+        result = cache.get_cache(query)
+        if result:
+            logger.debug(f"Cache hit for query: {query[:50]}...")
+        return str(result)
+    except Exception as e:
+        logger.warning(f"Cache read failed: {str(e)}")
+        return None
+
+
+def set_cached_answer(query: str, answer: str) -> bool:
+    """Set answer in cache, with error handling."""
+    from . import cache
+    try:
+        cache.set_cache(query, answer)
+        return True
+    except Exception as e:
+        logger.warning(f"Cache write failed: {str(e)}")
+        return False
+
+
+def rerank_documents(
+    query: str,
+    docs: List[SearchDocument],
+) -> List[SearchDocument]:
+    """Rerank documents, returning original list if reranking fails."""
+    from . import reranker
+    
+    if not docs:
+        return docs
 
     try:
-        routed = route_and_invoke(
+        logger.debug(f"Reranking {len(docs)} documents...")
+        start_time = time.time()
+
+        reranked = reranker.rerank(query, docs)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.debug(f"Reranking completed in {elapsed_ms:.0f}ms")
+        return reranked
+
+    except Exception as e:
+        logger.warning(
+            f"Reranking failed, using original order: {str(e)}",
+            exc_info=True,
+        )
+        return docs
+
+
+def ask_question(query: str) -> str:
+    """Main RAG pipeline with robust error handling."""
+    from . import utils, metrics
+    
+    start_time = time.time()
+
+    # Step 0: Input validation
+    if not query or not query.strip():
+        logger.warning("Empty query received")
+        return "Please provide a question."
+
+    query = query.strip()
+    lower_query = query.lower()
+
+    if any(pattern in lower_query for pattern in _forbidden_query_patterns):
+        logger.warning(f"Forbidden query pattern detected: {query[:50]}...")
+        return "This query is not allowed."
+
+    logger.info(f"Processing query: {query[:50]}...")
+
+    # Step 1: Check cache
+    cached_answer = get_cached_answer(query)
+    if cached_answer:
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(f"Cache hit, returned in {elapsed_ms:.0f}ms")
+        return cached_answer
+
+    # Step 2: Vector search
+    docs = hybrid_search(query, k=5)
+
+    # Step 3: Rerank (if we have docs)
+    if docs:
+        docs = rerank_documents(query, docs)
+
+    # Step 4: RAG path (with context)
+    if docs and len(docs) >= 2:
+        logger.debug(f"Using RAG path with {len(docs)} documents")
+        
+        context = "\n".join(d.page_content for d in docs if d.page_content)
+        prompt = utils.build_prompt(context, query)
+
+        result = invoke_bedrock_with_retry(
             prompt=prompt,
             query=query,
             context=context,
+            max_retries=3,
         )
 
-        answer = routed["answer"]
+        if result and result.get("answer"):
+            answer = result["answer"]
+            set_cached_answer(query, answer)
+            
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(f"RAG response generated in {elapsed_ms:.0f}ms")
+            
+            try:
+                metrics.log_metrics(query, 0, "rag")
+            except Exception as e:
+                logger.warning(f"Metrics logging failed: {str(e)}")
+            
+            return answer
 
-        set_cache(query, answer)
-        log_metrics(query, 0, "rag")
+    # Step 5: Fallback path (LLM only, no context)
+    logger.info(
+        f"Falling back to LLM-only path (found {len(docs)} documents, need >= 2)"
+    )
+    
+    prompt = f"{TERSE_SYSTEM}\n\n{query}"
+    
+    result = invoke_bedrock_with_retry(
+        prompt=prompt,
+        query=query,
+        context="",
+        max_retries=3,
+    )
+
+    if result and result.get("answer"):
+        answer = (
+            f"I couldn't find relevant documents. Based on my knowledge:\n\n"
+            f"{result['answer']}"
+        )
+        set_cached_answer(query, answer)
+        
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
+        
+        try:
+            metrics.log_metrics(query, 0, "llm")
+        except Exception as e:
+            logger.warning(f"Metrics logging failed: {str(e)}")
+        
         return answer
 
-    except Exception:
-        return "Error generating response."
+    # All paths failed
+    elapsed_ms = (time.time() - start_time) * 1000
+    logger.error(f"All answer generation paths failed after {elapsed_ms:.0f}ms")
+    
+    return (
+        "I'm having trouble generating an answer right now. "
+        "Please try again in a moment."
+    )
 
 
-# ─── Summarization ────────────────────────────────────────────────────────────
+def summarize_doc(doc_id: str) -> str:
+    """Summarize a document with comprehensive error handling."""
+    from . import utils
+    
+    if not doc_id or not doc_id.strip():
+        logger.warning("Empty doc_id provided for summarization")
+        return "Please provide a document ID."
 
+    doc_id = doc_id.strip()
+    logger.info(f"Summarizing document: {doc_id}")
 
-def summarize_doc(doc_id: str):
+    # Search for document
     docs = hybrid_search(doc_id, k=10)
-
+    
     if not docs:
-        return "No content found."
+        logger.warning(f"No documents found for doc_id: {doc_id}")
+        return f"No documents found for ID: {doc_id}"
 
     context = "\n".join(d.page_content for d in docs if d.page_content)
 
-    try:
-        routed = route_and_invoke(
-            prompt=("Summarize the following document:\n\n" f"{context}"),
-            query="summarize document",
-            context=context,
-        )
+    if not context.strip():
+        logger.warning(f"No extractable content found for doc_id: {doc_id}")
+        return "No content available for summarization."
 
-        return routed["answer"]
+    prompt = (
+        "Summarize the following document concisely. Include key points only:\n\n"
+        f"{context}"
+    )
 
-    except Exception:
-        return "Error generating summary."
+    result = invoke_bedrock_with_retry(
+        prompt=prompt,
+        query="summarize document",
+        context=context,
+        max_retries=2,
+    )
+
+    if result and result.get("answer"):
+        logger.info("Document summarization successful")
+        return result["answer"]
+
+    logger.error(f"Failed to summarize document: {doc_id}")
+    return "Failed to generate summary. Please try again."

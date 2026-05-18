@@ -1,30 +1,58 @@
 "use client";
+
 import { useState } from "react";
-import api from "../apiClient";
+import { useApi } from "@/hooks/useApi";
+
+const ALLOWED_TYPES = ["application/pdf", "text/plain", "text/csv"];
+const MAX_SIZE_MB = 10;
 
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const api = useApi();
 
-  const upload = async () => {
-    if (!file) {
-      setMessage("Please select a file");
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0] || null;
+    setValidationError("");
+    setMessage("");
+
+    if (!selected) {
+      setFile(null);
       return;
     }
 
-    setLoading(true);
+    if (!ALLOWED_TYPES.includes(selected.type)) {
+      setValidationError("Only PDF, TXT, and CSV files are allowed.");
+      setFile(null);
+      return;
+    }
+
+    if (selected.size > MAX_SIZE_MB * 1024 * 1024) {
+      setValidationError(`File must be under ${MAX_SIZE_MB}MB.`);
+      setFile(null);
+      return;
+    }
+
+    setFile(selected);
+  };
+
+  const upload = async () => {
+    if (!file) {
+      setValidationError("Please select a file.");
+      return;
+    }
+
+    setMessage("");
     const fd = new FormData();
     fd.append("file", file);
 
     try {
       const res = await api.post("/upload", fd);
-      setMessage(`Uploaded: ${res.data.key}`);
+      setMessage(`Uploaded: ${res.key || file.name}`);
       setFile(null);
     } catch (err: any) {
-      setMessage(err.response?.data?.detail || "Upload failed");
-    } finally {
-      setLoading(false);
+      setMessage(err.message || "Upload failed.");
     }
   };
 
@@ -32,13 +60,35 @@ export default function Upload() {
     <div style={{ padding: 24 }}>
       <input
         type="file"
-        onChange={(e) => setFile(e.target.files?.[0] || null)}
-        disabled={loading}
+        accept=".pdf,.txt,.csv"
+        onChange={handleFileChange}
+        disabled={api.loading}
       />
-      <button onClick={upload} disabled={loading || !file}>
-        {loading ? "Uploading..." : "Upload"}
+
+      {validationError && (
+        <p style={{ color: "red", marginTop: 8 }}>{validationError}</p>
+      )}
+
+      <button
+        onClick={upload}
+        disabled={api.loading || !file}
+        style={{ marginTop: 12, display: "block" }}
+      >
+        {api.loading ? "Uploading..." : "Upload"}
       </button>
-      {message && <p>{message}</p>}
+
+      {api.error && (
+        <p style={{ color: "red", marginTop: 8 }}>
+          {api.error.message}
+          {api.error.retryable && (
+            <button onClick={upload} style={{ marginLeft: 8 }}>
+              Retry
+            </button>
+          )}
+        </p>
+      )}
+
+      {message && <p style={{ marginTop: 8 }}>{message}</p>}
     </div>
   );
 }
