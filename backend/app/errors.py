@@ -12,9 +12,9 @@ This module provides:
 import logging
 import traceback
 from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Any, Dict
 from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,16 @@ logger = logging.getLogger(__name__)
 
 class ErrorSeverity(str, Enum):
     """Error severity levels for monitoring and alerting."""
+
     CRITICAL = "critical"  # System down, immediate action required
-    ERROR = "error"        # Serious error, feature broken
-    WARNING = "warning"    # Degraded functionality, may self-recover
-    INFO = "info"          # Informational, no action needed
+    ERROR = "error"  # Serious error, feature broken
+    WARNING = "warning"  # Degraded functionality, may self-recover
+    INFO = "info"  # Informational, no action needed
 
 
 class ErrorCategory(str, Enum):
     """Error categories for routing and handling."""
+
     AUTH = "authentication"
     VALIDATION = "validation"
     RATE_LIMIT = "rate_limit"
@@ -252,7 +254,9 @@ class OpenSearchError(RAGException):
 class CacheError(RAGException):
     """Cache operation error."""
 
-    def __init__(self, message: str = "Cache error", operation: Optional[str] = None, **kwargs):
+    def __init__(
+        self, message: str = "Cache error", operation: Optional[str] = None, **kwargs
+    ):
         details = kwargs.pop("details", {})
         if operation:
             details["operation"] = operation
