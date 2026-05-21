@@ -147,6 +147,19 @@ jobs:
           rm -rf ./package/safetensors
           rm -rf ./package/nvidia*
           rm -rf ./package/*.egg-info
+          rm -f ./package/faiss/_swigfaiss.abi3.so
+          rm -f ./package/faiss/_swigfaiss_avx512.abi3.so
+          rm -rf ./package/zstandard
+          rm -rf ./package/langsmith ./package/langgraph ./package/langgraph_sdk \
+            ./package/langgraph_checkpoint ./package/langgraph_prebuilt \
+            ./package/langchain ./package/langchain_protocol
+          
+
+          find ./package -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find ./package -type d -name "testing" -exec rm -rf {} + 2>/dev/null || true
+          find ./package -name "*.pyi" -delete 2>/dev/null || true
+          find ./package -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
+
           
           cp __init__.py ./package/backend/__init__.py
           cp -r app ./package/backend
