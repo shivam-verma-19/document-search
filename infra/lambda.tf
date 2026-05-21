@@ -34,7 +34,6 @@ resource "aws_lambda_function" "rag_api" {
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic,
     aws_iam_role_policy_attachment.lambda_policy_attach,
-    aws_chromadbserverless_access_policy.access,
   ]
 }
 
@@ -66,7 +65,6 @@ resource "aws_lambda_function" "rag_ingest_worker" {
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic,
     aws_iam_role_policy_attachment.lambda_policy_attach,
-    aws_chromadbserverless_access_policy.access,
   ]
 }
 

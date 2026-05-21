@@ -42,7 +42,7 @@ class ErrorCategory(str, Enum):
     TIMEOUT = "timeout"
     RESOURCE_NOT_FOUND = "not_found"
     BEDROCK = "bedrock"
-    OPENSEARCH = "opensearch"
+    CHROMADB = "chromadb"
     CACHE = "cache"
     UNKNOWN = "unknown"
 
@@ -237,13 +237,13 @@ class BedrockError(RAGException):
         )
 
 
-class OpenSearchError(RAGException):
-    """OpenSearch/vector store error."""
+class ChromaDBError(RAGException):
+    """ChromaDB/vector store error."""
 
     def __init__(self, message: str = "Vector store error", **kwargs):
         super().__init__(
             message=message,
-            category=ErrorCategory.OPENSEARCH,
+            category=ErrorCategory.CHROMADB,
             severity=ErrorSeverity.ERROR,
             status_code=503,
             retryable=True,
@@ -338,7 +338,7 @@ class RetryConfig:
         TimeoutError,
         RateLimitError,
         BedrockError,
-        OpenSearchError,
+        ChromaDBError,
     )
 
     def get_delay_ms(self, attempt: int) -> int:

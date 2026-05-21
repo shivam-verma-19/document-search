@@ -4,7 +4,7 @@ A production-ready **Retrieval-Augmented Generation (RAG)** platform built with 
 
 - FastAPI
 - AWS Lambda
-- OpenSearch Serverless
+- ChromaDB
 - Bedrock
 - Hybrid Search
 - Reranking
@@ -38,7 +38,7 @@ Pipeline includes:
 
 Combines:
 
-- Semantic Vector Search (OpenSearch Serverless)
+- Semantic Vector Search (ChromaDB)
 - BM25 Keyword Search
 - Cross-Encoder Reranking
 
@@ -112,7 +112,7 @@ API Gateway
 Lambda (FastAPI RAG API)
 ↓
 Hybrid Retrieval
-├── OpenSearch Serverless (Vector Search)
+├── ChromaDB (Vector Search)
 └── BM25 Retriever
 ↓
 Reranker
