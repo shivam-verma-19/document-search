@@ -42,8 +42,6 @@ def _load_index():
 
 
 def _save_index():
-    global _index
-    global _documents
 
     _ensure_dir()
 
@@ -54,7 +52,6 @@ def _save_index():
 
 
 def get_index() -> faiss.IndexFlatL2:
-    global _index
 
     if _index is None:
         _load_index()
@@ -75,7 +72,6 @@ def index_document(
     embedding=None,
     metadata=None,
 ):
-    global _documents
 
     if embedding is None:
         raise ValueError("Embedding required")
@@ -113,8 +109,6 @@ def search_documents(
     query_embedding,
     k=5,
 ):
-    global _documents
-
     index = get_index()
 
     if int(index.ntotal) == 0:
@@ -166,7 +160,6 @@ def search_similar(
 
 
 def get_document(doc_id):
-    global _documents
 
     for doc in _documents.values():
         if doc["_id"] == str(doc_id):
@@ -182,7 +175,6 @@ def get_document(doc_id):
 
 
 def delete_document(doc_id):
-    global _documents
 
     to_delete = None
 
