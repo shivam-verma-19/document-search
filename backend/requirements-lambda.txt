@@ -12,5 +12,4 @@ uvicorn
 python-jose
 rank_bm25
 PyJWT
-python-multipart
 faiss-cpu

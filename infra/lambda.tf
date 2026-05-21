@@ -1,7 +1,9 @@
 resource "aws_lambda_function" "rag_api" {
   function_name = "${var.project_name}-api"
-  filename         = var.lambda_zip_path
-  source_code_hash = filebase64sha256(var.lambda_zip_path)
+  s3_bucket = aws_s3_bucket.lambda_deployments.id
+  s3_key    = aws_s3_object.lambda_zip.key
+
+  source_code_hash = filebase64sha256("${path.module}/../backend/deployment.zip")
 
   handler = "backend.app.main.handler"
   runtime = "python3.10"
@@ -39,8 +41,10 @@ resource "aws_lambda_function" "rag_api" {
 
 resource "aws_lambda_function" "rag_ingest_worker" {
   function_name = "${var.project_name}-ingest-worker"
-  filename         = var.lambda_zip_path
-  source_code_hash = filebase64sha256(var.lambda_zip_path)
+  s3_bucket = aws_s3_bucket.lambda_deployments.id
+  s3_key    = aws_s3_object.lambda_zip.key
+
+  source_code_hash = filebase64sha256("${path.module}/../backend/deployment.zip")
 
   handler = "backend.app.worker_lambda.handler"
   runtime = "python3.10"
@@ -76,4 +80,12 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
 resource "aws_cloudwatch_log_group" "worker_lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.rag_ingest_worker.function_name}"
   retention_in_days = 7
+}
+
+resource "aws_s3_object" "lambda_zip" {
+  bucket = aws_s3_bucket.lambda_deployments.id
+  key    = "deployment.zip"
+  source = "${path.module}/../backend/deployment.zip"
+
+  etag = filemd5("${path.module}/../backend/deployment.zip")
 }
