@@ -1,3 +1,7 @@
+locals {
+  deployment_zip = "${path.root}/../backend/deployment.zip"
+}
+
 resource "aws_lambda_function" "rag_api" {
   function_name = "${var.project_name}-api"
   s3_bucket = aws_s3_bucket.lambda_deployments.id
@@ -85,7 +89,7 @@ resource "aws_cloudwatch_log_group" "worker_lambda_logs" {
 resource "aws_s3_object" "lambda_zip" {
   bucket = aws_s3_bucket.lambda_deployments.id
   key    = "deployment.zip"
-  source = "${path.module}/../backend/deployment.zip"
+  source = local.deployment_zip
 
-  etag = filemd5("${path.module}/../backend/deployment.zip")
+  etag = filemd5(local.deployment_zip)
 }
