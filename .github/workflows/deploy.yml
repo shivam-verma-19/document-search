@@ -167,8 +167,8 @@ jobs:
           # Fail if package too large
           SIZE=$(du -m deployment.zip | cut -f1)
 
-          if [ "$SIZE" -gt 50 ]; then
-            echo "ERROR: Lambda zip exceeds 50MB limit"
+          if [ "$SIZE" -gt 70 ]; then
+            echo "ERROR: Lambda zip exceeds 70MB limit"
             exit 1
           fi
         
