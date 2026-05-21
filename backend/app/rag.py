@@ -59,10 +59,10 @@ def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
         # Step 2: Vector search
         if embedding:
             try:
-                from . import chromadb_client
+                from . import faiss_client
 
                 logger.debug("Performing vector similarity search...")
-                results = chromadb_client.search_similar(embedding, k=k)
+                results = faiss_client.search_similar(embedding, k=k)
 
                 seen = set()
                 for text in results:

@@ -6,6 +6,6 @@ resource "aws_secretsmanager_secret_version" "rag_secrets_value" {
   secret_id = aws_secretsmanager_secret.rag_secrets.id
 
   secret_string = jsonencode({
-    CHROMA_PERSIST_DIR = "/tmp/chroma"
+    FAISS_PERSIST_DIR = "/tmp/faiss"
   })
 }

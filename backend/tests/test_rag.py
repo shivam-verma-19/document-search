@@ -59,9 +59,9 @@ def _load_rag(
 
     import backend.app.bedrock_router as bedrock_router
     import backend.app.cache as cache_mod
-    import backend.app.chromadb_client as chromadb_mod
     import backend.app.embeddings as embeddings_mod
     import backend.app.evaluation as evaluation_mod
+    import backend.app.faiss_client as faiss_mod
     import backend.app.metrics as metrics_mod
     import backend.app.monitoring as monitoring_mod
     import backend.app.reranker as reranker_mod
@@ -91,9 +91,9 @@ def _load_rag(
         lambda q: [0.1, 0.2, 0.3],
     )
 
-    # ChromaDB
+    # faiss
     monkeypatch.setattr(
-        chromadb_mod,
+        faiss_mod,
         "search_similar",
         lambda embedding, k=5: search_results[:k],
     )
@@ -178,15 +178,15 @@ class TestHybridSearch:
 
         assert len(contents) == len(set(contents))
 
-    def test_returns_empty_on_chromadb_failure(self, monkeypatch):
+    def test_returns_empty_on_faiss_failure(self, monkeypatch):
         rag = _load_rag(monkeypatch)
 
-        import backend.app.chromadb_client as chromadb_mod
+        import backend.app.faiss_client as faiss_mod
 
         monkeypatch.setattr(
-            chromadb_mod,
+            faiss_mod,
             "search_similar",
-            mock.MagicMock(side_effect=Exception("chromadb down")),
+            mock.MagicMock(side_effect=Exception("faiss down")),
         )
 
         docs = rag.hybrid_search("query")

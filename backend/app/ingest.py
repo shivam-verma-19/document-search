@@ -7,10 +7,10 @@ import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile
 
-from .chromadb_client import index_document
 from .chunker import chunk_text
 from .config import get_settings
 from .embeddings import get_embedding
+from .faiss_client import index_document
 
 settings = get_settings()
 s3 = boto3.client("s3")  # type: ignore
@@ -87,15 +87,17 @@ def process_upload(file: UploadFile, user: str):
     doc_id = str(uuid4())
     chunks = chunk_text(text)
 
-    for i, chunk in enumerate(chunks):
+    for idx, chunk in enumerate(chunks):
         embedding = get_embedding(chunk)
 
         index_document(
             doc_id=doc_id,
-            user_id=user,
-            chunk_id=i,
             text=chunk,
             embedding=embedding,
+            metadata={
+                "user_id": key.split("/")[0],
+                "chunk_id": idx,
+            },
         )
 
     enqueue_file(key, user)

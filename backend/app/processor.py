@@ -7,9 +7,9 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
-from .chromadb_client import index_document
 from .config import get_settings
 from .embeddings import get_embedding
+from .faiss_client import index_document
 
 settings = get_settings()
 s3 = boto3.client("s3")  # type: ignore
@@ -93,10 +93,12 @@ def process_file_from_s3(bucket: str, key: str):
 
         index_document(
             doc_id=doc_id,
-            user_id=key.split("/")[0],
-            chunk_id=idx,
             text=chunk.page_content,
             embedding=embedding,
+            metadata={
+                "user_id": key.split("/")[0],
+                "chunk_id": idx,
+            },
         )
 
     # =========================
