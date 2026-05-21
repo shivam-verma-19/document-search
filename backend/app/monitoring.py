@@ -1,6 +1,6 @@
 import boto3
 
-cloudwatch = boto3.client("cloudwatch") # type: ignore
+cloudwatch = boto3.client("cloudwatch")  # type: ignore
 
 
 def push_metric(name, value):

@@ -7,9 +7,9 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
+from .chromadb_client import index_document
 from .config import get_settings
 from .embeddings import get_embedding
-from .chromadb_client import index_document
 
 settings = get_settings()
 s3 = boto3.client("s3")  # type: ignore

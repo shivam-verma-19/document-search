@@ -59,11 +59,11 @@ def _load_rag(
 
     import backend.app.bedrock_router as bedrock_router
     import backend.app.cache as cache_mod
+    import backend.app.chromadb_client as chromadb_mod
     import backend.app.embeddings as embeddings_mod
     import backend.app.evaluation as evaluation_mod
     import backend.app.metrics as metrics_mod
     import backend.app.monitoring as monitoring_mod
-    import backend.app.chromadb_client as chromadb_mod
     import backend.app.reranker as reranker_mod
 
     # Metrics / monitoring

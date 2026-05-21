@@ -7,10 +7,10 @@ import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile
 
+from .chromadb_client import index_document
 from .chunker import chunk_text
 from .config import get_settings
 from .embeddings import get_embedding
-from .chromadb_client import index_document
 
 settings = get_settings()
 s3 = boto3.client("s3")  # type: ignore
