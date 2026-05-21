@@ -10,7 +10,7 @@ from fastapi import HTTPException, UploadFile
 from .chunker import chunk_text
 from .config import get_settings
 from .embeddings import get_embedding
-from .opensearch_client import index_document
+from .chromadb_client import index_document
 
 settings = get_settings()
 s3 = boto3.client("s3")  # type: ignore

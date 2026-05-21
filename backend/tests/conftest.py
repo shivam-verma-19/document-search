@@ -2,7 +2,7 @@
 Shared pytest fixtures for the document-search test suite.
 
 All AWS calls are intercepted by moto.
-LLM / embeddings / OpenSearch are mocked.
+LLM / embeddings / ChromaDB are mocked.
 Tests run fully offline.
 """
 
@@ -34,7 +34,7 @@ os.environ.setdefault(
     "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword",
 )
 os.environ.setdefault("FORBIDDEN_UPLOAD_PATTERNS", "")
-os.environ.setdefault("OPENSEARCH_ENDPOINT", "http://mock-opensearch")
+os.environ.setdefault("CHROMA_PERSIST_DIR", "http:///tmp/chroma-test")
 os.environ.setdefault("USE_BEDROCK", "false")
 
 
@@ -130,15 +130,15 @@ def app(monkeypatch):
     )
 
     # -------------------------
-    # 🔥 NEW: OpenSearch
+    # 🔥 NEW: ChromaDB
     # -------------------------
     monkeypatch.setattr(
-        "backend.app.opensearch_client.index_document",
+        "backend.app.chromadb_client.index_document",
         lambda *args, **kwargs: None,
     )
 
     monkeypatch.setattr(
-        "backend.app.opensearch_client.search_similar",
+        "backend.app.chromadb_client.search_similar",
         lambda emb, k=5: ["mock context 1", "mock context 2"],
     )
 

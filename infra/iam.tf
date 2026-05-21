@@ -97,17 +97,6 @@ resource "aws_iam_policy" "lambda_policy" {
       },
 
       ##################################
-      # OpenSearch Serverless
-      ##################################
-      {
-        Effect = "Allow"
-        Action = [
-          "aoss:APIAccessAll"
-        ]
-        Resource = "*"
-      },
-
-      ##################################
       # ✅ FIX 8: Bedrock — was missing entirely
       # bedrock_router.py calls bedrock-runtime for Claude + Llama
       ##################################

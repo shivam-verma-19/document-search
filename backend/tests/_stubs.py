@@ -5,13 +5,13 @@ from unittest.mock import MagicMock
 
 
 def install_all_stubs():
-    # ── OpenSearch ─────────────────────────────────────────────────────────────
-    mock_opensearch = MagicMock()
-    mock_opensearch.search_similar = MagicMock(
+    # ── ChromaDB ─────────────────────────────────────────────────────────────
+    mock_chromadb = MagicMock()
+    mock_chromadb.search_similar = MagicMock(
         return_value=["mock document 1", "mock document 2", "mock document 3"]
     )
-    mock_opensearch.index_document = MagicMock()
-    sys.modules["backend.app.opensearch_client"] = mock_opensearch
+    mock_chromadb.index_document = MagicMock()
+    sys.modules["backend.app.chromadb_client"] = mock_chromadb
 
     # ── Bedrock router ─────────────────────────────────────────────────────────
     # Default result — individual tests override via monkeypatch.

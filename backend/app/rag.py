@@ -1,4 +1,4 @@
-# backend/app/rag_robust.py
+
 """
 Robust RAG pipeline with comprehensive error handling, logging, and monitoring.
 
@@ -60,10 +60,10 @@ def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
         # Step 2: Vector search
         if embedding:
             try:
-                from . import opensearch_client
+                from . import chromadb_client
 
                 logger.debug("Performing vector similarity search...")
-                results = opensearch_client.search_similar(embedding, k=k)
+                results = chromadb_client.search_similar(embedding, k=k)
 
                 seen = set()
                 for text in results:

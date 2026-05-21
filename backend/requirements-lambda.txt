@@ -4,7 +4,6 @@ requests
 requests_aws4auth
 langchain
 langchain_text_splitters
-opensearch-py
 pypdf
 pydantic_settings
 python_multipart
@@ -14,3 +13,4 @@ python-jose
 rank_bm25
 PyJWT
 python-multipart
+chromadb
