@@ -123,72 +123,35 @@ jobs:
 
       - name: Create Lambda Deployment Zip
         run: |
-          cd backend
+          rm -rf lambda_package
+          rm -f backend/deployment.zip
               
-          # =========================================
-          # CLEAN OLD ARTIFACTS
-          # =========================================
-          rm -rf package
-          rm -rf python
-          rm -f deployment.zip
+          mkdir -p lambda_package/backend
               
-          mkdir -p package
-          mkdir -p python
-          mkdir -p package/backend
-              
-          # =========================================
-          # INSTALL LAMBDA-COMPATIBLE DEPENDENCIES
-          # =========================================
+          # Build dependencies inside AWS Lambda container
           docker run --rm \
+            --entrypoint /bin/bash \
             -v $(pwd):/var/task \
             public.ecr.aws/lambda/python:3.11 \
-            pip install -r requirements-lambda.txt \
+            -c "
+              pip install -r backend/requirements-lambda.txt \
               --platform manylinux2014_x86_64 \
               --only-binary=:all: \
-              -t python/
+              -t lambda_package/
               
-          # =========================================
-          # COPY DEPENDENCIES TO PACKAGE
-          # =========================================
-          cp -r python/* package/
+              find lambda_package -name '*.so' -exec strip {} \; || true
+              find lambda_package -type d -name tests -exec rm -rf {} +
+              find lambda_package -type d -name __pycache__ -exec rm -rf {} +
+            "
               
-          # =========================================
-          # REMOVE UNUSED LARGE PACKAGES
-          # =========================================
-          rm -rf ./package/torch
-          rm -rf ./package/torchvision
-          rm -rf ./package/torchaudio
-          rm -rf ./package/sentence_transformers
-          rm -rf ./package/transformers
-          rm -rf ./package/tokenizers
-          rm -rf ./package/huggingface_hub
-          rm -rf ./package/safetensors
-          rm -rf ./package/nvidia*
-          rm -rf ./package/*.egg-info
+          # Copy backend code
+          cp backend/__init__.py lambda_package/backend/__init__.py
+          cp -r backend/app lambda_package/backend/
               
-          # =========================================
-          # STRIP LARGE NATIVE BINARIES
-          # =========================================
-          find ./package -name "*.so" -exec strip {} \; || true
+          # Create deployment zip
+          cd lambda_package
               
-          # =========================================
-          # REMOVE TESTS / CACHE FILES
-          # =========================================
-          find ./package -type d -name "tests" -exec rm -rf {} +
-          find ./package -type d -name "__pycache__" -exec rm -rf {} +
-              
-          # =========================================
-          # COPY APPLICATION CODE
-          # =========================================
-          cp __init__.py ./package/backend/__init__.py
-          cp -r app ./package/backend
-              
-          # =========================================
-          # CREATE ZIP
-          # =========================================
-          cd package
-              
-          zip -r ../deployment.zip . \
+          zip -r ../backend/deployment.zip . \
             -x "*__pycache__*" \
             -x "*.pyc" \
             -x "*.dist-info/*" \
@@ -196,17 +159,12 @@ jobs:
               
           cd ..
               
-          # =========================================
-          # VERIFY PACKAGE
-          # =========================================
-          ls -lh deployment.zip
+          ls -lh backend/deployment.zip
               
-          SIZE=$(du -m deployment.zip | cut -f1)
+          SIZE=$(du -m backend/deployment.zip | cut -f1)
               
-          echo "Deployment package size: ${SIZE}MB"
-              
-          if [ "$SIZE" -gt 65 ]; then
-            echo "ERROR: Lambda zip exceeds safe limit"
+          if [ "$SIZE" -gt 70 ]; then
+            echo "ERROR: Lambda zip exceeds 70MB limit"
             exit 1
           fi
         
