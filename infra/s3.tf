@@ -42,3 +42,12 @@ resource "aws_s3_bucket_policy" "uploads_tls" {
     }]
   })
 }
+
+resource "aws_s3_object" "lambda_deployment" {
+  bucket = aws_s3_bucket.uploads.id
+  key    = "deployments/lambda_backend.zip"
+  source = var.lambda_zip_path
+  
+  # The etag forces Terraform to upload the file again if the code changes
+  etag   = filemd5(var.lambda_zip_path)
+}

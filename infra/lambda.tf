@@ -1,6 +1,7 @@
 resource "aws_lambda_function" "rag_api" {
   function_name = "${var.project_name}-api"
-  filename         = var.lambda_zip_path
+  s3_bucket        = aws_s3_object.lambda_deployment.bucket
+  s3_key           = aws_s3_object.lambda_deployment.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
   handler = "backend.app.main.handler"
@@ -39,7 +40,8 @@ resource "aws_lambda_function" "rag_api" {
 
 resource "aws_lambda_function" "rag_ingest_worker" {
   function_name = "${var.project_name}-ingest-worker"
-  filename         = var.lambda_zip_path
+  s3_bucket        = aws_s3_object.lambda_deployment.bucket
+  s3_key           = aws_s3_object.lambda_deployment.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
   handler = "backend.app.worker_lambda.handler"
