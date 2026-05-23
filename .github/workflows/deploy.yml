@@ -132,14 +132,13 @@ jobs:
           docker run --rm \
             --entrypoint /bin/bash \
             -v $(pwd):/var/task \
-            public.ecr.aws/lambda/python:3.11 \
+            public.ecr.aws/lambda/python:3.10 \
             -c "
               pip install -r backend/requirements-lambda.txt \
               --platform manylinux2014_x86_64 \
               --only-binary=:all: \
               -t lambda_package/
               
-              find lambda_package -name '*.so' -exec strip {} \; || true
               find lambda_package -type d -name tests -exec rm -rf {} +
               find lambda_package -type d -name __pycache__ -exec rm -rf {} +
             "
