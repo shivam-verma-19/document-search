@@ -106,9 +106,9 @@ resource "aws_iam_policy" "lambda_policy" {
           "bedrock:InvokeModel"
         ]
         Resource = [
-          "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5",
+          "arn:aws:bedrock:*::foundation-model/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
           "arn:aws:bedrock:*::foundation-model/meta.llama3-8b-instruct-v1:0",
-          "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v1",
+          "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
           "arn:aws:bedrock:*::foundation-model/amazon.rerank-v1:0"
         ]
       }

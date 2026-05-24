@@ -11,7 +11,7 @@ INDEX_FILE = os.path.join(FAISS_INDEX_DIR, "index.faiss")
 
 METADATA_FILE = os.path.join(FAISS_INDEX_DIR, "metadata.pkl")
 
-DIMENSION = 1536
+DIMENSION = int(os.getenv("FAISS_DIMENSION", "1024"))
 
 _index = None
 _documents = {}
@@ -206,3 +206,10 @@ def reset_collection():
 
 def generate_doc_id():
     return str(uuid.uuid4())
+
+
+def get_all_documents() -> list:
+    """Return all stored documents as plain text strings for BM25 corpus."""
+    if _index is None:
+        _load_index()
+    return [doc["text"] for doc in _documents.values() if doc.get("text")]

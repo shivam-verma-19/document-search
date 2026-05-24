@@ -18,7 +18,7 @@ def _get_client():
 def get_embedding(text: str) -> list[float]:
     body = json.dumps({"inputText": text})
     response = _get_client().invoke_model(
-        modelId="amazon.titan-embed-text-v1",
+        modelId="amazon.titan-embed-text-v2:0",
         contentType="application/json",
         accept="application/json",
         body=body,

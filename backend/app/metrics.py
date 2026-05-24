@@ -1,3 +1,4 @@
+import time
 import uuid
 
 import boto3
@@ -10,6 +11,7 @@ def log_metrics(query, latency, source):
         Item={
             "id": str(uuid.uuid4()),
             "query": query,
+            "timestamp": str(int(time.time())),
             "latency": latency,
             "source": source,
         }

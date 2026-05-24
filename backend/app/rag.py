@@ -1,12 +1,9 @@
 """
-Robust RAG pipeline with comprehensive error handling, logging, and monitoring.
-
-Features:
-- Detailed logging at each step
-- Graceful degradation with fallbacks
-- Retry logic for transient failures
-- Error tracking and categorization
-- Performance monitoring
+RAG pipeline with:
+- Fixed cache bug (str(None) -> "None" false hit)
+- Real hybrid search: FAISS vector + BM25 keyword with RRF fusion
+- Local reranker (no Bedrock rerank API needed)
+- ap-south-1 compatible throughout
 """
 
 import logging
@@ -29,62 +26,124 @@ _forbidden_query_patterns = {
     "ddos",
     "sql injection",
     "drop table",
+    "api keys",
+    "secret",
+    "password",
+    "credentials",
+    "vulnerability",
+    "attack",
+    "phishing",
+    "ransomware",
+    "trojan",
+    "worm",
+    "spyware",
+    "keylogger",
+    "backdoor",
+    "rootkit",
+    "botnet",
+    "cryptojacking",
+    "social engineering",
+    "zero-day",
+    "cybercrime",
+    "cyberattack",
+    "cybersecurity breach",
+    "data breach",
 }
 
 TERSE_SYSTEM = "Reply concise. No filler. No preamble. Facts only."
 
 
+# ─── RRF fusion ───────────────────────────────────────────────────────────────
+
+
+def _reciprocal_rank_fusion(
+    list1: List[SearchDocument],
+    list2: List[SearchDocument],
+    k: int = 5,
+    rrf_k: int = 60,
+) -> List[SearchDocument]:
+    """
+    Combine two ranked lists using Reciprocal Rank Fusion.
+    Score = Σ 1 / (rrf_k + rank)   — rrf_k=60 is the standard constant.
+    Immune to score-scale mismatch between vector and keyword results.
+    """
+    scores: dict[str, float] = {}
+    doc_map: dict[str, SearchDocument] = {}
+
+    for rank, doc in enumerate(list1, start=1):
+        key = doc.page_content
+        scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
+        doc_map[key] = doc
+
+    for rank, doc in enumerate(list2, start=1):
+        key = doc.page_content
+        scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
+        doc_map[key] = doc
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [doc_map[key] for key, _ in ranked[:k]]
+
+
+# ─── Hybrid search ────────────────────────────────────────────────────────────
+
+
 def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
-    """Perform hybrid vector and keyword search with comprehensive error handling."""
+    """
+    True hybrid search: FAISS vector search + BM25 keyword search fused via RRF.
+    Falls back gracefully if either leg fails.
+    """
     if not query or not query.strip():
         logger.warning("Empty query provided to hybrid_search")
         return []
 
     start_time = time.time()
-    docs = []
+    vector_docs: List[SearchDocument] = []
+    bm25_docs: List[SearchDocument] = []
 
+    # ── Leg 1: Vector search ──────────────────────────────────────────────────
     try:
-        logger.debug(f"Getting embedding for query: {query[:50]}...")
-        # Step 1: Get embedding
-        from . import embeddings
+        from . import embeddings, faiss_client
 
-        try:
-            embedding = embeddings.get_embedding(query)
-        except Exception as e:
-            logger.warning(
-                f"Embedding failed (continuing with keyword search): {str(e)}"
-            )
-            embedding = None
+        embedding = embeddings.get_embedding(query)
 
-        # Step 2: Vector search
-        if embedding:
-            try:
-                from . import faiss_client
+        results = faiss_client.search_similar(embedding, k=k)
+        seen: set[str] = set()
+        for text in results:
+            if text and text not in seen:
+                seen.add(text)
+                vector_docs.append(SearchDocument(page_content=text))
 
-                logger.debug("Performing vector similarity search...")
-                results = faiss_client.search_similar(embedding, k=k)
-
-                seen = set()
-                for text in results:
-                    if text and text not in seen:
-                        seen.add(text)
-                        docs.append(SearchDocument(page_content=text))
-
-                logger.debug(f"Vector search returned {len(docs)} documents")
-
-            except Exception as e:
-                logger.warning(f"Vector search failed: {str(e)}")
-                docs = []
-
-        elapsed_ms = (time.time() - start_time) * 1000
-        logger.info(
-            f"Hybrid search completed in {elapsed_ms:.0f}ms, found {len(docs)} docs"
-        )
-        return docs[:k]
+        logger.debug(f"Vector search returned {len(vector_docs)} docs")
 
     except Exception as e:
-        logger.error(f"Unexpected error in hybrid_search: {str(e)}", exc_info=True)
-        return []
+        logger.warning(f"Vector search failed (continuing with keyword only): {e}")
+
+    # ── Leg 2: BM25 keyword search ────────────────────────────────────────────
+    try:
+        from . import faiss_client
+        from .hybrid import BM25Retriever
+
+        all_texts = faiss_client.get_all_documents()
+        all_docs = [SearchDocument(page_content=t) for t in all_texts]
+        bm25_docs = BM25Retriever(all_docs).search(query, k=k)
+
+        logger.debug(f"BM25 search returned {len(bm25_docs)} docs")
+
+    except Exception as e:
+        logger.warning(f"BM25 search failed (continuing with vector only): {e}")
+
+    # ── RRF fusion ────────────────────────────────────────────────────────────
+    fused = _reciprocal_rank_fusion(vector_docs, bm25_docs, k=k)
+
+    elapsed_ms = (time.time() - start_time) * 1000
+    logger.info(
+        f"Hybrid search (RRF) completed in {elapsed_ms:.0f}ms, {len(fused)} docs"
+    )
+
+    return fused
+
+
+# ─── Bedrock invocation ───────────────────────────────────────────────────────
 
 
 def invoke_bedrock_with_retry(
@@ -93,7 +152,6 @@ def invoke_bedrock_with_retry(
     context: str = "",
     max_retries: int = 3,
 ) -> Optional[dict]:
-    """Invoke Bedrock with automatic retry logic for transient failures."""
     from . import bedrock_router
 
     attempt = 0
@@ -121,32 +179,27 @@ def invoke_bedrock_with_retry(
 
         except Exception as e:
             last_error = e
-
             is_retryable = _is_bedrock_error_retryable(e)
 
             if not is_retryable or attempt >= max_retries:
                 logger.error(
-                    f"Bedrock failed (attempt {attempt}/{max_retries}): {str(e)} | "
+                    f"Bedrock failed (attempt {attempt}/{max_retries}): {e} | "
                     f"Retryable: {is_retryable}",
                     exc_info=True,
                 )
                 return None
 
-            # Calculate backoff delay
             delay_ms = min(100 * (2 ** (attempt - 1)), 5000)
             logger.warning(
-                f"Bedrock failed (attempt {attempt}), retrying in {delay_ms}ms: {str(e)}"
+                f"Bedrock failed (attempt {attempt}), retrying in {delay_ms}ms: {e}"
             )
             time.sleep(delay_ms / 1000)
 
-    logger.error(
-        f"All {max_retries} Bedrock attempts failed. Last error: {str(last_error)}"
-    )
+    logger.error(f"All {max_retries} Bedrock attempts failed. Last: {last_error}")
     return None
 
 
 def _is_bedrock_error_retryable(error: Exception) -> bool:
-    """Determine if a Bedrock error is worth retrying."""
     error_str = str(error).lower()
     retryable_keywords = [
         "timeout",
@@ -160,71 +213,64 @@ def _is_bedrock_error_retryable(error: Exception) -> bool:
     return any(keyword in error_str for keyword in retryable_keywords)
 
 
+# ─── Cache ────────────────────────────────────────────────────────────────────
+
+
 def get_cached_answer(query: str) -> Optional[str]:
-    """Get answer from cache, with error handling."""
     from . import cache
 
     try:
         result = cache.get_cache(query)
         if result:
             logger.debug(f"Cache hit for query: {query[:50]}...")
-            return str(result)
-
+            return str(result)  # only return inside the if block
         logger.debug(f"Cache miss for query: {query[:50]}...")
-        return None
-
+        return None  # explicit None when cache empty
     except Exception as e:
-        logger.warning(f"Cache read failed: {str(e)}")
+        logger.warning(f"Cache read failed: {e}")
         return None
 
 
 def set_cached_answer(query: str, answer: str) -> bool:
-    """Set answer in cache, with error handling."""
     from . import cache
 
     try:
         cache.set_cache(query, answer)
         return True
     except Exception as e:
-        logger.warning(f"Cache write failed: {str(e)}")
+        logger.warning(f"Cache write failed: {e}")
         return False
 
 
-def rerank_documents(
-    query: str,
-    docs: List[SearchDocument],
-) -> List[SearchDocument]:
-    """Rerank documents, returning original list if reranking fails."""
+# ─── Reranker ────────────────────────────────────────────────────────────────
+
+
+def rerank_documents(query: str, docs: List[SearchDocument]) -> List[SearchDocument]:
+    """Local reranker — no Bedrock rerank API call needed."""
     from . import reranker
 
     if not docs:
         return docs
-
     try:
         logger.debug(f"Reranking {len(docs)} documents...")
         start_time = time.time()
-
         reranked = reranker.rerank(query, docs)
-
         elapsed_ms = (time.time() - start_time) * 1000
         logger.debug(f"Reranking completed in {elapsed_ms:.0f}ms")
         return reranked
-
     except Exception as e:
-        logger.warning(
-            f"Reranking failed, using original order: {str(e)}",
-            exc_info=True,
-        )
+        logger.warning(f"Reranking failed, using original order: {e}", exc_info=True)
         return docs
 
 
+# ─── Main pipeline ────────────────────────────────────────────────────────────
+
+
 def ask_question(query: str) -> str:
-    """Main RAG pipeline with robust error handling."""
     from . import metrics, utils
 
     start_time = time.time()
 
-    # Step 0: Input validation
     if not query or not query.strip():
         logger.warning("Empty query received")
         return "Please provide a question."
@@ -238,60 +284,47 @@ def ask_question(query: str) -> str:
 
     logger.info(f"Processing query: {query[:50]}...")
 
-    # Step 1: Check cache
+    # Step 1: Cache check (fixed)
     cached_answer = get_cached_answer(query)
     if cached_answer:
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Cache hit, returned in {elapsed_ms:.0f}ms")
         return cached_answer
 
-    # Step 2: Vector search
+    # Step 2: Hybrid search (vector + BM25 + RRF)
     docs = hybrid_search(query, k=5)
 
-    # Step 3: Rerank (if we have docs)
+    # Step 3: Local rerank
     if docs:
         docs = rerank_documents(query, docs)
 
-    # Step 4: RAG path (with context)
+    # Step 4: RAG path
     if docs and len(docs) >= 2:
         logger.debug(f"Using RAG path with {len(docs)} documents")
-
         context = "\n".join(d.page_content for d in docs if d.page_content)
         prompt = utils.build_prompt(context, query)
 
         result = invoke_bedrock_with_retry(
-            prompt=prompt,
-            query=query,
-            context=context,
-            max_retries=3,
+            prompt=prompt, query=query, context=context, max_retries=3
         )
 
         if result and result.get("answer"):
             answer = result["answer"]
             set_cached_answer(query, answer)
-
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(f"RAG response generated in {elapsed_ms:.0f}ms")
-
             try:
-                metrics.log_metrics(query, 0, "rag")
+                metrics.log_metrics(query, elapsed_ms, "rag")
             except Exception as e:
-                logger.warning(f"Metrics logging failed: {str(e)}")
-
+                logger.warning(f"Metrics logging failed: {e}")
             return answer
 
-    # Step 5: Fallback path (LLM only, no context)
-    logger.info(
-        f"Falling back to LLM-only path (found {len(docs)} documents, need >= 2)"
-    )
-
+    # Step 5: Fallback LLM-only
+    logger.info(f"Falling back to LLM-only path (found {len(docs)} docs, need >= 2)")
     prompt = f"{TERSE_SYSTEM}\n\n{query}"
 
     result = invoke_bedrock_with_retry(
-        prompt=prompt,
-        query=query,
-        context="",
-        max_retries=3,
+        prompt=prompt, query=query, context="", max_retries=3
     )
 
     if result and result.get("answer"):
@@ -300,29 +333,23 @@ def ask_question(query: str) -> str:
             f"{result['answer']}"
         )
         set_cached_answer(query, answer)
-
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
-
         try:
-            metrics.log_metrics(query, 0, "llm")
+            metrics.log_metrics(query, elapsed_ms, "llm")
         except Exception as e:
-            logger.warning(f"Metrics logging failed: {str(e)}")
-
+            logger.warning(f"Metrics logging failed: {e}")
         return answer
 
-    # All paths failed
     elapsed_ms = (time.time() - start_time) * 1000
     logger.error(f"All answer generation paths failed after {elapsed_ms:.0f}ms")
+    return "I'm having trouble generating an answer right now. Please try again in a moment."
 
-    return (
-        "I'm having trouble generating an answer right now. "
-        "Please try again in a moment."
-    )
+
+# ─── Summarize ────────────────────────────────────────────────────────────────
 
 
 def summarize_doc(doc_id: str) -> str:
-    """Summarize a document with comprehensive error handling."""
     from . import utils
 
     if not doc_id or not doc_id.strip():
@@ -332,7 +359,6 @@ def summarize_doc(doc_id: str) -> str:
     doc_id = doc_id.strip()
     logger.info(f"Summarizing document: {doc_id}")
 
-    # Search for document
     docs = hybrid_search(doc_id, k=10)
 
     if not docs:
