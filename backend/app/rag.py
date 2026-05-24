@@ -168,8 +168,9 @@ def get_cached_answer(query: str) -> Optional[str]:
         result = cache.get_cache(query)
         if result:
             logger.debug(f"Cache hit for query: {query[:50]}...")
-        return str(result)
+            return str(result)
 
+        logger.debug(f"Cache miss for query: {query[:50]}...")
         return None
 
     except Exception as e:
