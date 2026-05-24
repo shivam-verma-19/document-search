@@ -169,6 +169,9 @@ def get_cached_answer(query: str) -> Optional[str]:
         if result:
             logger.debug(f"Cache hit for query: {query[:50]}...")
         return str(result)
+
+        return None
+
     except Exception as e:
         logger.warning(f"Cache read failed: {str(e)}")
         return None

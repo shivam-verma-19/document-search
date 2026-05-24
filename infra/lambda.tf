@@ -17,7 +17,7 @@ resource "aws_lambda_function" "rag_api" {
       SECRET_NAME             = aws_secretsmanager_secret.rag_secrets.name
       BUCKET_NAME             = aws_s3_bucket.uploads.bucket
       USE_BEDROCK             = "true"
-      BEDROCK_CLAUDE_MODEL_ID = "anthropic.claude-sonnet-4-5"
+      BEDROCK_CLAUDE_MODEL_ID = "anthropic.claude-sonnet-4-5-20250929-v1:0"
       BEDROCK_LLAMA_MODEL_ID  = "meta.llama3-8b-instruct-v1:0"
 
       FAISS_PERSIST_DIR = "/tmp/faiss"
