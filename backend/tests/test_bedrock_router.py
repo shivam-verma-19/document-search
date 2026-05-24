@@ -16,8 +16,8 @@ import backend.app.bedrock_router as _router  # noqa: E402  (must come after evi
 # ── Model name constants ───────────────────────────────────────────────────────
 # Update these if you change models; every assertion below uses them.
 LLAMA_MODEL = "llama3-bedrock"
-CLAUDE_MODEL = "claude-sonnet-4-5"
-CLAUDE_RETRY = "claude-sonnet-4-5-retry"
+CLAUDE_MODEL = "claude-3-haiku-20240307-v1:0"
+CLAUDE_RETRY = "claude-3-haiku-20240307-v1:0-retry"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
