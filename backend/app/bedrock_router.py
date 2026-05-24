@@ -207,13 +207,11 @@ def _invoke_claude(prompt: str, max_tokens: int = 1024) -> ModelResponse:
             body=body,
         )
         text = json.loads(resp["body"].read())["content"][0]["text"].strip()
-        return ModelResponse(
-            model="claude-sonnet-4-5", text=text, success=True
-        ) 
+        return ModelResponse(model="claude-sonnet-4-5", text=text, success=True)
     except Exception as exc:
         return ModelResponse(
             model="claude-sonnet-4-5", text="", success=False, error=str(exc)
-        ) 
+        )
 
 
 def _invoke_llama(prompt: str) -> ModelResponse:
@@ -269,7 +267,7 @@ def route_and_invoke(prompt: str, query: str = "", context: str = ""):
             conf = score_confidence(query, claude.text)
             return RouterResult(
                 answer=claude.text,
-                model_used="claude-sonnet-4-5",  
+                model_used="claude-sonnet-4-5",
                 complexity=clf.complexity,
                 confidence=conf,
                 escalated=True,
@@ -290,7 +288,7 @@ def route_and_invoke(prompt: str, query: str = "", context: str = ""):
             if conf >= CONFIDENCE_THRESHOLD:
                 return RouterResult(
                     answer=claude.text,
-                    model_used="claude-sonnet-4-5", 
+                    model_used="claude-sonnet-4-5",
                     complexity=clf.complexity,
                     confidence=conf,
                     escalated=False,
@@ -299,13 +297,13 @@ def route_and_invoke(prompt: str, query: str = "", context: str = ""):
                 ).to_dict()
 
             retry = _invoke_claude(prompt, max_tokens=2048)
-            attempted.append("claude-sonnet-4-5-retry") 
+            attempted.append("claude-sonnet-4-5-retry")
 
             if retry.success and retry.text:
                 retry_conf = score_confidence(query, retry.text)
                 return RouterResult(
                     answer=retry.text,
-                    model_used="claude-sonnet-4-5-retry", 
+                    model_used="claude-sonnet-4-5-retry",
                     complexity=clf.complexity,
                     confidence=retry_conf,
                     escalated=True,
@@ -313,7 +311,7 @@ def route_and_invoke(prompt: str, query: str = "", context: str = ""):
                     errors=errors,
                 ).to_dict()
 
-            errors["claude-sonnet-4-5-retry"] = retry.error or "unknown" 
+            errors["claude-sonnet-4-5-retry"] = retry.error or "unknown"
 
         else:
             errors[claude.model] = claude.error or "unknown"
