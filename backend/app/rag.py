@@ -4,6 +4,7 @@ RAG pipeline with:
 - Real hybrid search: FAISS vector + BM25 keyword with RRF fusion
 - Local reranker (no Bedrock rerank API needed)
 - ap-south-1 compatible throughout
+- Router error logging: model failures now surface in CloudWatch
 """
 
 import logging
@@ -62,11 +63,6 @@ def _reciprocal_rank_fusion(
     k: int = 5,
     rrf_k: int = 60,
 ) -> List[SearchDocument]:
-    """
-    Combine two ranked lists using Reciprocal Rank Fusion.
-    Score = Σ 1 / (rrf_k + rank)   — rrf_k=60 is the standard constant.
-    Immune to score-scale mismatch between vector and keyword results.
-    """
     scores: dict[str, float] = {}
     doc_map: dict[str, SearchDocument] = {}
 
@@ -88,10 +84,6 @@ def _reciprocal_rank_fusion(
 
 
 def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
-    """
-    True hybrid search: FAISS vector search + BM25 keyword search fused via RRF.
-    Falls back gracefully if either leg fails.
-    """
     if not query or not query.strip():
         logger.warning("Empty query provided to hybrid_search")
         return []
@@ -100,25 +92,20 @@ def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
     vector_docs: List[SearchDocument] = []
     bm25_docs: List[SearchDocument] = []
 
-    # ── Leg 1: Vector search ──────────────────────────────────────────────────
     try:
         from . import embeddings, faiss_client
 
         embedding = embeddings.get_embedding(query)
-
         results = faiss_client.search_similar(embedding, k=k)
         seen: set[str] = set()
         for text in results:
             if text and text not in seen:
                 seen.add(text)
                 vector_docs.append(SearchDocument(page_content=text))
-
         logger.debug(f"Vector search returned {len(vector_docs)} docs")
-
     except Exception as e:
         logger.warning(f"Vector search failed (continuing with keyword only): {e}")
 
-    # ── Leg 2: BM25 keyword search ────────────────────────────────────────────
     try:
         from . import faiss_client
         from .hybrid import BM25Retriever
@@ -126,20 +113,15 @@ def hybrid_search(query: str, k: int = 5) -> List[SearchDocument]:
         all_texts = faiss_client.get_all_documents()
         all_docs = [SearchDocument(page_content=t) for t in all_texts]
         bm25_docs = BM25Retriever(all_docs).search(query, k=k)
-
         logger.debug(f"BM25 search returned {len(bm25_docs)} docs")
-
     except Exception as e:
         logger.warning(f"BM25 search failed (continuing with vector only): {e}")
 
-    # ── RRF fusion ────────────────────────────────────────────────────────────
     fused = _reciprocal_rank_fusion(vector_docs, bm25_docs, k=k)
-
     elapsed_ms = (time.time() - start_time) * 1000
     logger.info(
         f"Hybrid search (RRF) completed in {elapsed_ms:.0f}ms, {len(fused)} docs"
     )
-
     return fused
 
 
@@ -170,6 +152,17 @@ def invoke_bedrock_with_retry(
             )
 
             elapsed_ms = (time.time() - start_time) * 1000
+
+            # ── FIX: log when router returns an error result (no exception raised) ──
+            if result.get("model_used") == "none":
+                logger.error(
+                    f"Bedrock router: all model tiers failed | "
+                    f"Attempted: {result.get('attempted')} | "
+                    f"Errors: {result.get('errors')} | "
+                    f"elapsed={elapsed_ms:.0f}ms"
+                )
+                return None  # treat as failure so caller falls through correctly
+
             logger.info(
                 f"Bedrock succeeded in {elapsed_ms:.0f}ms | "
                 f"Model: {result.get('model_used')} | "
@@ -223,9 +216,9 @@ def get_cached_answer(query: str) -> Optional[str]:
         result = cache.get_cache(query)
         if result:
             logger.debug(f"Cache hit for query: {query[:50]}...")
-            return str(result)  # only return inside the if block
+            return str(result)
         logger.debug(f"Cache miss for query: {query[:50]}...")
-        return None  # explicit None when cache empty
+        return None
     except Exception as e:
         logger.warning(f"Cache read failed: {e}")
         return None
@@ -246,7 +239,6 @@ def set_cached_answer(query: str, answer: str) -> bool:
 
 
 def rerank_documents(query: str, docs: List[SearchDocument]) -> List[SearchDocument]:
-    """Local reranker — no Bedrock rerank API call needed."""
     from . import reranker
 
     if not docs:
@@ -284,21 +276,17 @@ def ask_question(query: str) -> str:
 
     logger.info(f"Processing query: {query[:50]}...")
 
-    # Step 1: Cache check (fixed)
     cached_answer = get_cached_answer(query)
     if cached_answer:
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Cache hit, returned in {elapsed_ms:.0f}ms")
         return cached_answer
 
-    # Step 2: Hybrid search (vector + BM25 + RRF)
     docs = hybrid_search(query, k=5)
 
-    # Step 3: Local rerank
     if docs:
         docs = rerank_documents(query, docs)
 
-    # Step 4: RAG path
     if docs and len(docs) >= 2:
         logger.debug(f"Using RAG path with {len(docs)} documents")
         context = "\n".join(d.page_content for d in docs if d.page_content)
@@ -319,7 +307,6 @@ def ask_question(query: str) -> str:
                 logger.warning(f"Metrics logging failed: {e}")
             return answer
 
-    # Step 5: Fallback LLM-only
     logger.info(f"Falling back to LLM-only path (found {len(docs)} docs, need >= 2)")
     prompt = f"{TERSE_SYSTEM}\n\n{query}"
 
