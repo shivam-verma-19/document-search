@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 CLAUDE_MODEL_ID = os.getenv(
     "BEDROCK_CLAUDE_MODEL_ID",
-    "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "anthropic.claude-3-haiku-20240307-v1:0",
 )
 
 LLAMA_MODEL_ID = os.getenv(
     "BEDROCK_LLAMA_MODEL_ID",
-    "meta.llama3-1-8b-instruct-v1:0",
+    "meta.llama3-8b-instruct-v1:0",
 )
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
