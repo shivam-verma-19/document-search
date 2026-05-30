@@ -1,129 +1,95 @@
-"""
-Tests for backend/app/main.py – FastAPI route layer.
-
-Heavy optional packages are no longer needed since unstructured was replaced
-with PyPDF. Tests run in any CI environment.
-"""
-
-import importlib
-import io
 import os
-import unittest.mock as mock
+from unittest.mock import MagicMock, patch
 
-from fastapi.testclient import TestClient
-
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
-os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
-os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
-os.environ.setdefault("SECRET_NAME", "rag-secrets")
-os.environ.setdefault("QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/q")
-
-AUTH_HEADER = {"Authorization": "Bearer test-token"}
-
+import pytest
 
 # ---------------------------------------------------------------------------
-# GET /
+# Env defaults (must happen before any app import)
 # ---------------------------------------------------------------------------
+os.environ.setdefault("AUTH_DISABLED", "true")
+
+# Mock google.genai before any import so embeddings module loads cleanly
+_mock_genai = MagicMock()
+_mock_genai_client_instance = MagicMock()
+_mock_genai.Client.return_value = _mock_genai_client_instance
+import sys
+
+sys.modules.setdefault("google", MagicMock())
+sys.modules.setdefault("google.genai", _mock_genai)
 
 
-class TestRoot:
-    def test_returns_200(self, client):
-        assert client.get("/").status_code == 200
+class TestMainRoutes:
+    @pytest.fixture
+    def client(self, monkeypatch):
+        import importlib
 
-    def test_returns_running_status(self, client):
-        assert client.get("/").json() == {"status": "running"}
-
-
-# ---------------------------------------------------------------------------
-# POST /upload
-# ---------------------------------------------------------------------------
-
-
-class TestUpload:
-    def test_happy_path_returns_queued(self, client):
-        r = client.post(
-            "/upload",
-            files={"file": ("test.pdf", io.BytesIO(b"pdf content"), "application/pdf")},
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+        monkeypatch.setattr(
+            "backend.app.auth.verify_token", lambda token=None: "user-id"
         )
-        assert r.status_code == 200
-        assert r.json() == {"message": "queued"}
-
-    def test_missing_file_returns_422(self, client):
-        assert client.post("/upload").status_code == 422
-
-
-# ---------------------------------------------------------------------------
-# GET /ask
-# ---------------------------------------------------------------------------
-
-
-class TestAsk:
-    def test_happy_path_returns_answer(self, client):
-        r = client.get("/ask", params={"q": "what is AI?"}, headers=AUTH_HEADER)
-        assert r.status_code == 200
-        assert "answer" in r.json()
-
-    def test_answer_matches_mock(self, client):
-        r = client.get("/ask", params={"q": "test"}, headers=AUTH_HEADER)
-        assert r.json()["answer"] == "mock answer"
-
-    def test_missing_query_param_returns_422(self, client):
-        assert client.get("/ask", headers=AUTH_HEADER).status_code == 422
-
-    def test_no_auth_token_is_rejected(self, monkeypatch):
-        """Real verify_token must reject requests with no Bearer token."""
-        from fastapi import HTTPException
-
-        def strict_verify(token=None):
-            if not token:
-                raise HTTPException(status_code=401)
-            return "user-id"
-
-        monkeypatch.setattr("backend.app.auth.verify_token", strict_verify)
-        monkeypatch.setattr("backend.app.utils.save_to_s3", lambda f: "k")
-        monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "a")
-        monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "s")
-        monkeypatch.setattr("backend.app.metrics.get_metrics", lambda: [])
-
-        import backend.app.ingest as ingest_mod
-
-        importlib.reload(ingest_mod)
-        monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda key, user: None)
+        monkeypatch.setattr("backend.app.auth.verify_cognito_token", lambda: "user-id")
+        monkeypatch.setattr("backend.app.auth.optional_auth", lambda: "user-id")
+        monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
+        monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
+        monkeypatch.setattr(
+            "backend.app.ingest.upload_file_to_s3", lambda f, u: "user/file.txt"
+        )
+        monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k, u=None: None)
+        monkeypatch.setattr("backend.app.metrics.get_metrics", lambda: [{"id": "1"}])
+        monkeypatch.setattr(
+            "backend.app.s3_vectors_client.delete_document",
+            lambda doc_id: {"result": "deleted", "_id": doc_id},
+        )
 
         import backend.app.main as main_mod
 
         importlib.reload(main_mod)
-        c = TestClient(main_mod.app, raise_server_exceptions=False)
-        r = c.get("/ask", params={"q": "test"})
-        assert r.status_code in (401, 403)
 
+        from fastapi.testclient import TestClient
 
-# ---------------------------------------------------------------------------
-# GET /summary
-# ---------------------------------------------------------------------------
+        with TestClient(main_mod.app, raise_server_exceptions=False) as c:
+            yield c
 
+    def test_root_returns_running(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
 
-class TestSummary:
-    def test_happy_path_returns_summary(self, client):
-        r = client.get("/summary", params={"doc_id": "abc123"}, headers=AUTH_HEADER)
-        assert r.status_code == 200
-        assert r.json()["summary"] == "mock summary"
+    def test_ask_requires_query_param(self, client):
+        resp = client.get("/ask", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code in (400, 422)
 
-    def test_missing_doc_id_returns_422(self, client):
-        assert client.get("/summary", headers=AUTH_HEADER).status_code == 422
+    def test_ask_returns_answer(self, client):
+        resp = client.get("/ask?q=hello", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert resp.json()["answer"] == "mock answer"
 
+    def test_summary_returns_summary(self, client):
+        resp = client.get(
+            "/summary?doc_id=abc123", headers={"Authorization": "Bearer fake"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["summary"] == "mock summary"
 
-# ---------------------------------------------------------------------------
-# GET /metrics
-# ---------------------------------------------------------------------------
+    def test_delete_document(self, client):
+        resp = client.delete(
+            "/document/doc123", headers={"Authorization": "Bearer fake"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["doc_id"] == "doc123"
+        assert data["message"] == "deleted"
 
+    def test_metrics_endpoint(self, client):
+        resp = client.get("/metrics", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
 
-class TestMetrics:
-    def test_happy_path_returns_list(self, client):
-        r = client.get("/metrics", headers=AUTH_HEADER)
-        assert r.status_code == 200
-        assert isinstance(r.json(), list)
-
-    def test_returns_mocked_data(self, client):
-        r = client.get("/metrics", headers=AUTH_HEADER)
-        assert r.json()[0]["id"] == "1"
+    def test_upload_endpoint(self, client):
+        resp = client.post(
+            "/upload",
+            files={"file": ("test.txt", b"hello", "text/plain")},
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "queued"

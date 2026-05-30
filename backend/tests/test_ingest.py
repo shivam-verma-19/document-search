@@ -1,221 +1,216 @@
-"""
-Tests for backend/app/ingest.py
-
-No heavy optional dependencies required — unstructured is no longer needed.
-"""
-
 import io
-import json
-import os
-import sys
-import types
-import unittest.mock as mock
-from typing import cast
+from io import BytesIO
+from unittest.mock import MagicMock, patch
 
-import boto3
 import pytest
-from fastapi import HTTPException, UploadFile, status
-from moto import mock_aws
+from fastapi import UploadFile
+from starlette.datastructures import Headers
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
-os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
-os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-class _FakeUpload:
-    def __init__(self, filename="test.pdf", content=b"pdf bytes"):
-        self.filename = filename
-        self.file = io.BytesIO(content)
-        self.content_type = "application/pdf"
-
-
-def _create_sqs_queue():
-    sqs = boto3.client("sqs", region_name="us-east-1")
-    resp = sqs.create_queue(QueueName="test-queue")
-    os.environ["QUEUE_URL"] = resp["QueueUrl"]
-    return sqs, resp["QueueUrl"]
-
-
-def _create_s3_bucket(name="rag-pipeline-upload-bucket"):
-    s3 = boto3.client("s3", region_name="us-east-1")
-    s3.create_bucket(Bucket=name)
-    return s3
-
-
-def _reload_ingest(overrides=None):
-    import importlib
-
-    import backend.app.ingest as m
-
-    importlib.reload(m)
-    for k, v in (overrides or {}).items():
-        setattr(m, k, v)
-    return m
-
-
-# ---------------------------------------------------------------------------
-# enqueue_file
-# ---------------------------------------------------------------------------
-
-
-class TestEnqueueFile:
-    @mock_aws
-    def test_message_lands_in_queue(self):
-        sqs, queue_url = _create_sqs_queue()
-        mod = _reload_ingest()
-        mod.enqueue_file("uploads/report.pdf")
-        messages = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1)
-        assert "Messages" in messages
-        body = json.loads(messages["Messages"][0]["Body"])
-        assert body["file"] == "uploads/report.pdf"
-
-    @mock_aws
-    def test_message_body_is_valid_json(self):
-        sqs, queue_url = _create_sqs_queue()
-        mod = _reload_ingest()
-        mod.enqueue_file("any/key.pdf")
-        messages = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1)
-        parsed = json.loads(messages["Messages"][0]["Body"])
-        assert "file" in parsed
-
-    @mock_aws
-    def test_multiple_enqueues(self):
-        sqs, queue_url = _create_sqs_queue()
-        mod = _reload_ingest()
-        mod.enqueue_file("a.pdf")
-        mod.enqueue_file("b.pdf")
-        messages = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
-        assert len(messages.get("Messages", [])) == 2
-
-
-# ---------------------------------------------------------------------------
-# process_upload
-# ---------------------------------------------------------------------------
-
-
-def _fake_overrides():
-    return {
-        "index_document": mock.MagicMock(return_value=None),
-        "get_embedding": lambda text: [0.1] * 1536,
-    }
-
-
-class TestProcessUpload:
-    @mock_aws
-    def test_returns_message(self):
-        _create_s3_bucket()
-        mod = _reload_ingest(_fake_overrides())
-        result = mod.process_upload(
-            cast(UploadFile, _FakeUpload("report.pdf")), "user-123"
-        )
-        assert "message" in result
-
-    @mock_aws
-    def test_uploads_to_correct_s3_key(self):
-        s3 = _create_s3_bucket()
-        mod = _reload_ingest(_fake_overrides())
-        mod.process_upload(
-            cast(UploadFile, _FakeUpload("my.pdf", b"pdf-content")), "alice"
-        )
-        obj = s3.get_object(Bucket="rag-pipeline-upload-bucket", Key="alice/my.pdf")
-        assert obj["Body"].read() == b"pdf-content"
-
-
-# ---------------------------------------------------------------------------
-# sanitize_filename
-# ---------------------------------------------------------------------------
-
-
-class TestSanitizeFilename:
-    def _sanitize(self, name):
-        from backend.app.ingest import sanitize_filename
-
-        return sanitize_filename(name)
-
-    def test_plain_name_unchanged(self):
-        assert self._sanitize("report.pdf") == "report.pdf"
-
-    def test_spaces_replaced_with_underscore(self):
-        assert self._sanitize("my file.pdf") == "my_file.pdf"
-
-    def test_special_chars_replaced(self):
-        result = self._sanitize("file@name!.pdf")
-        assert "@" not in result
-        assert "!" not in result
-
-    def test_leading_dots_stripped(self):
-        result = self._sanitize("...secret.pdf")
-        assert not result.startswith(".")
-
-    def test_long_name_truncated_to_255(self):
-        long_name = "a" * 300 + ".pdf"
-        assert len(self._sanitize(long_name)) <= 255
-
-    def test_whitespace_stripped(self):
-        assert self._sanitize("  file.pdf  ") == "file.pdf"
-
-
-# ---------------------------------------------------------------------------
-# validate_upload_file – rejection branches
-# ---------------------------------------------------------------------------
+from backend.app.ingest import (
+    upload_file_to_s3,
+    validate_upload_file,
+)
 
 
 class TestValidateUploadFile:
-    def _validate(self, upload):
-        from backend.app.ingest import validate_upload_file
+    def test_valid_file_returns_content(self):
+        upload = UploadFile(
+            filename="report.pdf",
+            file=BytesIO(b"hello world"),
+            headers=Headers({"content-type": "application/pdf"}),
+        )
 
-        return validate_upload_file(cast(UploadFile, upload))
+        content = validate_upload_file(upload)
 
-    def test_missing_filename_raises_400(self):
-        upload = _FakeUpload(filename="")
-        with pytest.raises(HTTPException) as exc:
-            self._validate(upload)
-        assert exc.value.status_code == 400
-
-    def test_no_extension_raises_400(self):
-        with pytest.raises(HTTPException) as exc:
-            self._validate(_FakeUpload(filename="nodotfile"))
-        assert exc.value.status_code == 400
-
-    def test_disallowed_extension_raises_400(self):
-        with pytest.raises(HTTPException) as exc:
-            self._validate(_FakeUpload(filename="malware.exe", content=b"data"))
-        assert exc.value.status_code == 400
-
-    def test_empty_file_raises_400(self):
-        with pytest.raises(HTTPException) as exc:
-            self._validate(_FakeUpload(filename="empty.pdf", content=b""))
-        assert exc.value.status_code == 400
-
-    def test_file_too_large_raises_400(self):
-        big = b"x" * (10 * 1024 * 1024 + 1)
-        with pytest.raises(HTTPException) as exc:
-            self._validate(_FakeUpload(filename="big.pdf", content=big))
-        assert exc.value.status_code == 400
-
-    def test_valid_pdf_returns_bytes(self):
-        result = self._validate(_FakeUpload(filename="ok.pdf", content=b"data"))
-        assert isinstance(result, bytes)
-        assert result == b"data"
+        assert content == b"hello world"
 
 
-# ---------------------------------------------------------------------------
-# upload_file_to_s3 – ClientError is swallowed
-# ---------------------------------------------------------------------------
+class TestUploadFileToS3:
+    @patch("backend.app.ingest.get_s3_client")
+    def test_returns_s3_key(self, mock_client_factory):
+        mock_client = MagicMock()
+        mock_client_factory.return_value = mock_client
+
+        upload = UploadFile(
+            filename="report.pdf",
+            file=BytesIO(b"hello world"),
+            headers=Headers({"content-type": "application/pdf"}),
+        )
+
+        key = upload_file_to_s3(upload, "user-123")
+
+        assert key == "user-123/report.pdf"
+
+    @patch("backend.app.ingest.get_s3_client")
+    def test_calls_upload_fileobj(self, mock_client_factory):
+        mock_client = MagicMock()
+        mock_client_factory.return_value = mock_client
+
+        upload = UploadFile(
+            filename="report.pdf",
+            file=BytesIO(b"hello world"),
+            headers=Headers({"content-type": "application/pdf"}),
+        )
+
+        upload_file_to_s3(upload, "user-123")
+
+        assert mock_client.upload_fileobj.called
 
 
 class TestUploadFileToS3ClientError:
-    @mock_aws
-    def test_client_error_is_swallowed_and_key_returned(self):
-        """upload_file_to_s3 catches ClientError; bucket intentionally absent."""
-        mod = _reload_ingest()
-        # No bucket created → upload_fileobj raises ClientError
-        result = mod.upload_file_to_s3(
-            cast(UploadFile, _FakeUpload("report.pdf")), "user-1"
+    @patch("backend.app.ingest.get_s3_client")
+    def test_client_error_is_swallowed_and_key_returned(self, mock_client_factory):
+        mock_client = MagicMock()
+        mock_client.upload_fileobj.side_effect = Exception("upload failed")
+        mock_client_factory.return_value = mock_client
+
+        upload = UploadFile(
+            filename="report.pdf",
+            file=BytesIO(b"hello world"),
+            headers=Headers({"content-type": "application/pdf"}),
         )
-        assert result == "user-1/report.pdf"
+
+        with pytest.raises(Exception):
+            upload_file_to_s3(upload, "user-123")
+
+
+class TestIngest:
+    def _make_upload(
+        self,
+        filename="test.pdf",
+        content=b"file content",
+        content_type="application/pdf",
+    ):
+        f = MagicMock()
+        f.filename = filename
+        f.content_type = content_type
+        f.file = io.BytesIO(content)
+        return f
+
+    def test_sanitize_filename_strips_bad_chars(self):
+        from backend.app.ingest import sanitize_filename
+
+        assert sanitize_filename("hello world!.pdf") == "hello_world_.pdf"
+        assert sanitize_filename("  file  ") == "file"
+
+    def test_sanitize_filename_max_length(self):
+        from backend.app.ingest import sanitize_filename
+
+        long = "a" * 300 + ".pdf"
+        result = sanitize_filename(long)
+        assert len(result) <= 255
+
+    def test_validate_upload_missing_filename(self):
+        from fastapi import HTTPException
+
+        from backend.app.ingest import validate_upload_file
+
+        f = MagicMock()
+        f.filename = ""
+        with pytest.raises(HTTPException) as exc:
+            validate_upload_file(f)
+        assert exc.value.status_code == 400
+
+    def test_validate_upload_no_extension(self):
+        from fastapi import HTTPException
+
+        from backend.app.ingest import validate_upload_file
+
+        f = MagicMock()
+        f.filename = "noextension"
+        f.content_type = "text/plain"
+        with pytest.raises(HTTPException) as exc:
+            validate_upload_file(f)
+        assert exc.value.status_code == 400
+
+    def test_validate_upload_unsupported_extension(self):
+        from fastapi import HTTPException
+
+        from backend.app.ingest import validate_upload_file
+
+        f = self._make_upload(
+            filename="virus.exe", content_type="application/octet-stream"
+        )
+        with pytest.raises(HTTPException) as exc:
+            validate_upload_file(f)
+        assert exc.value.status_code == 400
+
+    def test_validate_upload_empty_file(self):
+        from fastapi import HTTPException
+
+        from backend.app.ingest import validate_upload_file
+
+        f = self._make_upload(content=b"")
+        with pytest.raises(HTTPException) as exc:
+            validate_upload_file(f)
+        assert exc.value.status_code == 400
+
+    def test_validate_upload_file_too_large(self, monkeypatch):
+        from fastapi import HTTPException
+
+        from backend.app.config import get_settings
+        from backend.app.ingest import validate_upload_file
+
+        settings = get_settings()
+        big = b"x" * (settings.max_upload_size + 2)
+        f = self._make_upload(content=big)
+        with pytest.raises(HTTPException) as exc:
+            validate_upload_file(f)
+        assert exc.value.status_code == 400
+
+    def test_validate_upload_valid_file_returns_bytes(self):
+        from backend.app.ingest import validate_upload_file
+
+        f = self._make_upload(
+            content=b"hello world", filename="doc.txt", content_type="text/plain"
+        )
+        result = validate_upload_file(f)
+        assert isinstance(result, bytes)
+        assert b"hello" in result
+
+    def test_upload_file_to_s3_success(self):
+        from backend.app.ingest import upload_file_to_s3
+
+        f = self._make_upload(
+            content=b"data", filename="doc.txt", content_type="text/plain"
+        )
+        with patch("backend.app.ingest.get_s3_client") as mock_s3:
+            key = upload_file_to_s3(f, "user123")
+        assert "user123" in key
+        assert "doc" in key
+
+    def test_upload_file_to_s3_client_error(self):
+        from botocore.exceptions import ClientError
+        from fastapi import HTTPException
+
+        from backend.app.ingest import upload_file_to_s3
+
+        f = self._make_upload(
+            content=b"data", filename="doc.txt", content_type="text/plain"
+        )
+        with patch("backend.app.ingest.get_s3_client") as mock_s3:
+            mock_s3.return_value.upload_fileobj.side_effect = ClientError(
+                {"Error": {"Code": "NoSuchBucket", "Message": "err"}}, "PutObject"
+            )
+            with pytest.raises(HTTPException) as exc:
+                upload_file_to_s3(f, "user123")
+        assert exc.value.status_code == 500
+
+    def test_enqueue_file_success(self):
+        from backend.app.ingest import enqueue_file
+
+        with patch("boto3.client") as mock_boto:
+            mock_boto.return_value.send_message.return_value = {}
+            enqueue_file("user/file.txt", "user123")  # should not raise
+
+    def test_enqueue_file_sqs_error_is_non_fatal(self):
+        from botocore.exceptions import ClientError
+
+        from backend.app.ingest import enqueue_file
+
+        with patch("boto3.client") as mock_boto:
+            mock_boto.return_value.send_message.side_effect = ClientError(
+                {"Error": {"Code": "QueueDoesNotExist", "Message": "err"}},
+                "SendMessage",
+            )
+            enqueue_file("user/file.txt")  # should NOT raise

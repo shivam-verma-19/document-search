@@ -1,85 +1,140 @@
-"""
-Tests for backend/app/auth.py
-
-Covers:
-  - verify_token with a valid token returns user id
-  - verify_token raises 401 when called with no / falsy token
-
-NOTE: The current implementation accepts ANY non-empty token
-(no real JWT validation). These tests document and verify that
-behaviour so a regression is caught if real validation is added.
-"""
+import importlib
+import os
 
 import pytest
 from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
+
+os.environ.setdefault("AUTH_DISABLED", "true")
 
 
 class TestVerifyToken:
-    def _make_token(self, credentials="Bearer some-token"):
-        """Create an HTTPAuthorizationCredentials-like stub."""
-        scheme, _, token = credentials.partition(" ")
-        return HTTPAuthorizationCredentials(scheme=scheme, credentials=token)
+    def test_no_token_raises_401(self):
+        import backend.app.auth as auth_mod
 
-    def test_valid_token_returns_user_id(self):
-        from backend.app.auth import verify_token
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = False
+        with pytest.raises(HTTPException) as exc:
+            auth_mod.verify_token(None)
+        assert exc.value.status_code == 401
 
-        result = verify_token(self._make_token("Bearer abc123"))
+    def test_empty_string_raises_401(self):
+        import backend.app.auth as auth_mod
+
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = False
+        with pytest.raises(HTTPException) as exc:
+            auth_mod.verify_token("")
+        assert exc.value.status_code == 401
+
+    def test_auth_disabled_no_jwk_returns_user_id(self, monkeypatch):
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+        import backend.app.auth as auth_mod
+
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = False
+        result = auth_mod.verify_token("any-token")
         assert result == "user-id"
 
-    def test_any_non_empty_token_accepted(self):
-        from backend.app.auth import verify_token
+    def test_no_jwk_auth_enabled_raises_500(self, monkeypatch):
+        monkeypatch.setenv("AUTH_DISABLED", "false")
+        import backend.app.auth as auth_mod
 
-        result = verify_token(self._make_token("Bearer totally-fake-token"))
-        assert result is not None
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = (
+            True  # skip lazy init, simulate missing config
+        )
+        with pytest.raises(HTTPException) as exc:
+            auth_mod.verify_token("some-token")
+        assert exc.value.status_code == 500
 
-    def test_none_token_raises_401(self):
-        from backend.app.auth import verify_token
+    def test_credentials_object_extracted(self, monkeypatch):
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+        import backend.app.auth as auth_mod
 
-        with pytest.raises(HTTPException) as exc_info:
-            verify_token(None)
-        assert exc_info.value.status_code == 401
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = False
+        from fastapi.security import HTTPAuthorizationCredentials
 
-    def test_empty_string_token_raises_401(self):
-        """Empty string is falsy — should also be rejected."""
-        from backend.app.auth import verify_token
-
-        with pytest.raises(HTTPException) as exc_info:
-            verify_token("")
-        assert exc_info.value.status_code == 401
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="tok")
+        result = auth_mod.verify_token(creds)
+        assert result == "user-id"
 
 
 class TestVerifyCognitoToken:
     def test_no_credentials_raises_401(self):
-        from backend.app.auth import verify_cognito_token
+        import backend.app.auth as auth_mod
 
-        with pytest.raises(HTTPException) as exc_info:
-            verify_cognito_token(credentials=None)
-        assert exc_info.value.status_code == 401
+        importlib.reload(auth_mod)
+        with pytest.raises(HTTPException) as exc:
+            auth_mod.verify_cognito_token(credentials=None)
+        assert exc.value.status_code == 401
 
-    def test_valid_credentials_returns_user_id(self):
+    def test_auth_disabled_returns_user_id(self, monkeypatch):
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+        import backend.app.auth as auth_mod
+
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = False
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from backend.app.auth import verify_cognito_token
-
-        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="token")
-        result = verify_cognito_token(credentials=creds)
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="tok")
+        result = auth_mod.verify_cognito_token(credentials=creds)
         assert result == "user-id"
 
 
 class TestOptionalAuth:
-    def test_no_credentials_returns_user_id_not_401(self):
-        """optional_auth must NOT raise when there is no token."""
-        from backend.app.auth import optional_auth
+    def test_no_credentials_returns_user_id(self):
+        import backend.app.auth as auth_mod
 
-        result = optional_auth(credentials=None)
+        importlib.reload(auth_mod)
+        result = auth_mod.optional_auth(credentials=None)
         assert result == "user-id"
 
-    def test_with_credentials_returns_user_id(self):
+    def test_with_credentials_auth_disabled_returns_user_id(self, monkeypatch):
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+        import backend.app.auth as auth_mod
+
+        importlib.reload(auth_mod)
+        auth_mod.JWK_CLIENT = None
+        auth_mod._JWK_CLIENT = None
+        auth_mod._JWK_CLIENT_INITIALISED = False
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from backend.app.auth import optional_auth
-
-        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="some-token")
-        result = optional_auth(credentials=creds)
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="tok")
+        result = auth_mod.optional_auth(credentials=creds)
         assert result == "user-id"
+
+
+class TestCognitoJWKClient:
+    def test_missing_kid_raises(self):
+        from unittest.mock import MagicMock, patch
+
+        import backend.app.auth as auth_mod
+
+        client = auth_mod.CognitoJWKClient("https://example.com/jwks.json")
+        fake_token = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
+        with patch("backend.app.auth.jwt.get_unverified_header", return_value={}):
+            with pytest.raises(Exception):
+                client.get_signing_key_from_jwt(fake_token)
+
+    def test_missing_kid_in_jwks_raises(self):
+        from unittest.mock import MagicMock, patch
+
+        import backend.app.auth as auth_mod
+
+        client = auth_mod.CognitoJWKClient("https://example.com/jwks.json")
+        with patch(
+            "backend.app.auth.jwt.get_unverified_header", return_value={"kid": "abc"}
+        ), patch.object(client, "_get_jwks", return_value={"keys": [{"kid": "other"}]}):
+            with pytest.raises(Exception, match="Unable to find kid"):
+                client.get_signing_key_from_jwt("tok")

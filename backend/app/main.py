@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import Depends, FastAPI, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from mangum import Mangum
@@ -15,17 +17,14 @@ from .metrics import get_metrics
 from .rag import ask_question, summarize_doc
 
 settings = get_settings()
-
 app = FastAPI()
 
-# ========================================
-# EXCEPTION HANDLERS
-# ========================================
+
+# ─── Exception handlers ───────────────────────────────────────────────────────
 
 
 @app.exception_handler(RAGException)
 async def rag_exception_handler(request: Request, exc: RAGException):
-    """Handle custom RAG exceptions with structured responses."""
     error_response = ErrorResponse.from_exception(exc)
     return JSONResponse(
         status_code=error_response.status_code, content={"error": error_response.error}
@@ -34,16 +33,15 @@ async def rag_exception_handler(request: Request, exc: RAGException):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Catch any unexpected exceptions and return structured error."""
     error_response = ErrorResponse.from_unknown_error(exc)
     return JSONResponse(
         status_code=error_response.status_code, content={"error": error_response.error}
     )
 
 
-# =========================
-# ✅ USER-BASED KEY FUNCTION
-# =========================
+# ─── Rate limiter ─────────────────────────────────────────────────────────────
+
+
 def get_user_id_from_request(request: Request):
     return getattr(request.state, "user_id", "anonymous")
 
@@ -52,19 +50,16 @@ limiter = Limiter(key_func=get_user_id_from_request)
 app.state.limiter = limiter
 
 
-# =========================
-# ✅ AUTH MIDDLEWARE
-# =========================
+# ─── Auth middleware ──────────────────────────────────────────────────────────
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
             auth_header = request.headers.get("Authorization")
-
             if auth_header and auth_header.startswith("Bearer "):
                 token = auth_header.split(" ")[1]
-
                 user = verify_token(token)
-
                 if isinstance(user, str):
                     request.state.user_id = user
                 else:
@@ -76,34 +71,23 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     )
             else:
                 request.state.user_id = "anonymous"
-
         except Exception:
             request.state.user_id = "anonymous"
-
         return await call_next(request)
 
 
-# =========================
-# ✅ REGISTER MIDDLEWARE
-# =========================
 app.add_middleware(AuthMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 
 
-# =========================
-# ✅ RATE LIMIT HANDLER
-# =========================
 @app.exception_handler(RateLimitExceeded)
 def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    return JSONResponse(
-        status_code=429,
-        content={"detail": "Rate limit exceeded"},
-    )
+    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
 
 
-# =========================
-# ROUTES
-# =========================
+# ─── Routes ───────────────────────────────────────────────────────────────────
+
+
 @app.get("/")
 def root():
     return {"status": "running"}
@@ -111,20 +95,15 @@ def root():
 
 @limiter.limit("5/minute")
 @app.post("/upload")
-def upload(
-    request: Request,
-    file: UploadFile,
-    user=Depends(optional_auth),
-):
+async def upload(request: Request, file: UploadFile, user=Depends(optional_auth)):
     if isinstance(user, str):
         user_id = user
     else:
         user_id = user.get("sub") or user.get("email") or "anonymous"
 
-    key = ingest.upload_file_to_s3(file, user_id)
-    ingest.enqueue_file(key, user_id)
-
-    return {"message": "queued"}
+    key = await asyncio.to_thread(ingest.upload_file_to_s3, file, user_id)
+    await asyncio.to_thread(ingest.enqueue_file, key, user_id)
+    return {"message": "queued", "key": key}
 
 
 @limiter.limit("10/minute")
@@ -147,13 +126,29 @@ def summary(
     return {"summary": summarize_doc(doc_id)}
 
 
+@limiter.limit("10/minute")
+@app.delete("/document/{doc_id}")
+def delete_document(
+    request: Request,
+    doc_id: str,
+    user: dict = Depends(verify_cognito_token),
+):
+    """
+    Delete a document from the vector store.
+    Previously missing — without this, stale/outdated docs polluted search forever.
+    """
+    from .s3_vectors_client import delete_document as _delete
+
+    result = _delete(doc_id)
+    return {"message": "deleted", "doc_id": doc_id, "result": result}
+
+
 @limiter.limit("30/minute")
 @app.get("/metrics")
 def metrics(request: Request, user: dict = Depends(verify_cognito_token)):
     return get_metrics()
 
 
-# =========================
-# LAMBDA HANDLER
-# =========================
+# ─── Lambda handler ───────────────────────────────────────────────────────────
+
 handler = Mangum(app)

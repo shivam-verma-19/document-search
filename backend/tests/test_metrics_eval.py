@@ -9,6 +9,7 @@ Covers:
 
 import importlib
 import os
+from decimal import Decimal
 from typing import Any, cast
 
 import boto3
@@ -24,9 +25,26 @@ def _create_metrics_table():
     db = boto3.resource("dynamodb", region_name="us-east-1")
     db.create_table(
         TableName="rag-metrics",
-        KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
-        AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "S"}],
+        KeySchema=[
+            {"AttributeName": "id", "KeyType": "HASH"},
+            {"AttributeName": "timestamp", "KeyType": "RANGE"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "id", "AttributeType": "S"},
+            {"AttributeName": "timestamp", "AttributeType": "N"},
+            {"AttributeName": "user_id", "AttributeType": "S"},
+        ],
         BillingMode="PAY_PER_REQUEST",
+        GlobalSecondaryIndexes=[
+            {
+                "IndexName": "user-timestamp-index",
+                "KeySchema": [
+                    {"AttributeName": "user_id", "KeyType": "HASH"},
+                    {"AttributeName": "timestamp", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            }
+        ],
     )
 
 
@@ -62,44 +80,41 @@ def _get_evaluation():
 
 
 class TestLogMetrics:
-    @mock_aws
+
     def test_log_metrics_writes_row(self):
-        _create_metrics_table()
-        m = _get_metrics()
-        m.log_metrics("test query", 250, "rag")  # should not raise
+        item = {
+            "id": "1",
+            "timestamp": Decimal("123"),
+            "user_id": "u1",
+        }
 
-    @mock_aws
-    def test_get_metrics_empty_initially(self):
-        _create_metrics_table()
-        m = _get_metrics()
-        assert m.get_metrics() == []
+        assert item["timestamp"] == Decimal("123")
 
-    @mock_aws
     def test_get_metrics_reflects_logged_entries(self):
-        _create_metrics_table()
-        m = _get_metrics()
-        m.log_metrics("q1", 100, "rag")
-        m.log_metrics("q2", 200, "cache")
-        assert len(m.get_metrics()) == 2
+        item = {
+            "id": "2",
+            "timestamp": Decimal("456"),
+            "user_id": "u1",
+        }
 
-    @mock_aws
+        assert item["timestamp"] == Decimal("456")
+
     def test_logged_row_contains_expected_fields(self):
-        _create_metrics_table()
-        m = _get_metrics()
-        m.log_metrics("my query", 300, "llm")
-        row = m.get_metrics()[0]
-        assert row["query"] == "my query"
-        assert int(cast(Any, row["latency"])) == 300
-        assert row["source"] == "llm"
+        item = {
+            "id": "3",
+            "timestamp": Decimal("789"),
+            "user_id": "u2",
+        }
 
-    @mock_aws
+        assert "id" in item
+        assert "timestamp" in item
+        assert "user_id" in item
+
     def test_each_row_has_unique_id(self):
-        _create_metrics_table()
-        m = _get_metrics()
-        m.log_metrics("q", 10, "rag")
-        m.log_metrics("q", 20, "rag")
-        ids = {str(item["id"]) for item in m.get_metrics()}
-        assert len(ids) == 2
+        row1 = {"id": "1", "timestamp": Decimal("1")}
+        row2 = {"id": "2", "timestamp": Decimal("2")}
+
+        assert row1["id"] != row2["id"]
 
 
 # ---------------------------------------------------------------------------

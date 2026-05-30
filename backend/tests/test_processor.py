@@ -1,281 +1,160 @@
 """
-Tests for backend/app/processor.py and backend/app/worker_lambda.py
+Tests for processor.py.
 
-processor covers:
-  - already_processed / mark_processed idempotency
-  - process_file_from_s3: skip when already processed
-  - process_file_from_s3: returns "empty" when extracted text is blank
-  - process_file_from_s3: happy path indexes chunks and marks key processed
-
-worker_lambda covers:
-  - handler with empty Records list
-  - handler processes each record and passes bucket + key
-  - handler tolerates missing Records key
+Verifies:
+- DynamoDB-backed idempotency (replaces in-memory set)
+- S3 download + text extraction
+- Embedding + indexing flow
+- BM25 corpus cache updated after indexing
+- already_processed returns True after mark_processed
 """
 
-import importlib
-import json
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from io import BytesIO
+from unittest.mock import MagicMock, call, patch
 
-import boto3
-import pytest
-from moto import mock_aws
+from botocore.exceptions import ClientError
 
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
-os.environ.setdefault("FAISS_PERSIST_DIR", "http:///tmp/faiss-test")
-os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
+
+# Stub heavy dependencies before import
+mock_s3v = MagicMock()
+mock_s3v.index_document = MagicMock()
+sys.modules["backend.app.s3_vectors_client"] = mock_s3v
+
+mock_embeddings = MagicMock()
+mock_embeddings.get_embedding = MagicMock(return_value=[0.1] * 768)
+sys.modules["backend.app.embeddings"] = mock_embeddings
+
+mock_bm25_cache = MagicMock()
+mock_bm25_cache.append_to_corpus = MagicMock()
+sys.modules["backend.app.bm25_cache"] = mock_bm25_cache
+
+mock_secrets = MagicMock()
+mock_secrets.get_secret = MagicMock(return_value="test-key")
+sys.modules["backend.app.secrets"] = mock_secrets
+
+for key in [k for k in list(sys.modules) if "backend.app.processor" in k]:
+    del sys.modules[key]
+
+import backend.app.processor as proc  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Stub PyPDF before importing processor (no longer need unstructured stub)
-# ---------------------------------------------------------------------------
+def _mock_dynamodb_table(has_item: bool = False):
+    t = MagicMock()
+    t.get_item.return_value = {"Item": {"s3_key": "key"}} if has_item else {}
+    return t
 
 
-def _stub_if_missing(name, obj):
-    if name not in sys.modules:
-        sys.modules[name] = obj
+class TestIdempotency:
+    def test_claim_processing_succeeds_first_call(self):
+        mock_t = _mock_dynamodb_table(has_item=False)
+        with patch.object(proc, "get_idempotency_table", return_value=mock_t):
+            assert proc.claim_processing("some/key.pdf") is True
+        mock_t.put_item.assert_called_once()
+        call_kwargs = mock_t.put_item.call_args.kwargs
+        assert call_kwargs["ConditionExpression"] == "attribute_not_exists(s3_key)"
+
+    def test_claim_processing_fails_already_claimed(self):
+        from botocore.exceptions import ClientError
+
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = ClientError(
+            {"Error": {"Code": "ConditionalCheckFailedException"}}, "PutItem"
+        )
+        with patch.object(proc, "get_idempotency_table", return_value=mock_t):
+            assert proc.claim_processing("some/key.pdf") is False
+
+    def test_mark_processed_updates_status(self):
+        mock_t = _mock_dynamodb_table()
+        with patch.object(proc, "get_idempotency_table", return_value=mock_t):
+            proc.mark_processed("some/key.pdf")
+        mock_t.update_item.assert_called_once()
+        call_kwargs = mock_t.update_item.call_args.kwargs
+        assert "UpdateExpression" in call_kwargs
+        assert "processed" in call_kwargs["UpdateExpression"]
 
 
-# Mock PyPDF reader
-class MockPdfReader:
-    def __init__(self, file=None):
-        self.pages = [MagicMock(extract_text=lambda: "extracted pdf text")]
+class TestTextExtraction:
+    def test_plain_text(self):
+        content = b"hello world"
+        assert proc.extract_text_from_file(content, "file.txt") == "hello world"
 
-
-# Create a mock module for pypdf
-_stub_pypdf_module = MagicMock()
-_stub_pypdf_module.PdfReader = MockPdfReader
-_stub_if_missing("pypdf", _stub_pypdf_module)
-
-_stub_if_missing("langchain_openai", MagicMock())
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _reload_processor(overrides=None):
-    import backend.app.processor as proc
-
-    importlib.reload(proc)
-    proc.processed_files.clear()
-    for k, v in (overrides or {}).items():
-        setattr(proc, k, v)
-    return proc
-
-
-def _reload_worker(overrides=None):
-    import backend.app.worker_lambda as wl
-
-    importlib.reload(wl)
-    for k, v in (overrides or {}).items():
-        setattr(wl, k, v)
-    return wl
-
-
-# ===========================================================================
-# processor – already_processed / mark_processed
-# ===========================================================================
-
-
-class TestProcessorIdempotency:
-    def test_already_processed_false_initially(self):
-        proc = _reload_processor()
-        assert proc.already_processed("some/key.pdf") is False
-
-    def test_mark_processed_makes_key_recognized(self):
-        proc = _reload_processor()
-        proc.mark_processed("some/key.pdf")
-        assert proc.already_processed("some/key.pdf") is True
-
-    def test_different_keys_are_independent(self):
-        proc = _reload_processor()
-        proc.mark_processed("a.pdf")
-        assert proc.already_processed("b.pdf") is False
-
-    def test_marking_twice_is_safe(self):
-        proc = _reload_processor()
-        proc.mark_processed("file.pdf")
-        proc.mark_processed("file.pdf")  # should not raise
-        assert proc.already_processed("file.pdf") is True
-
-
-# ===========================================================================
-# processor – extract_text_from_file
-# ===========================================================================
-
-
-class TestExtractTextFromFile:
     def test_pdf_extraction(self):
-        proc = _reload_processor()
-        result = proc.extract_text_from_file(b"pdf bytes", "document.pdf")
-        assert isinstance(result, str)
-        assert len(result) > 0
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "pdf text"
+        with patch("backend.app.processor.PdfReader") as mock_reader:
+            mock_reader.return_value.pages = [mock_page]
+            result = proc.extract_text_from_file(b"%PDF-fake", "doc.pdf")
+        assert result == "pdf text"
 
-    def test_plaintext_extraction(self):
-        proc = _reload_processor()
-        content = b"Hello world text"
-        result = proc.extract_text_from_file(content, "document.txt")
-        assert result == "Hello world text"
-
-    def test_csv_extraction(self):
-        proc = _reload_processor()
-        content = b"col1,col2\nval1,val2"
-        result = proc.extract_text_from_file(content, "data.csv")
-        assert result == "col1,col2\nval1,val2"
-
-    def test_invalid_utf8_is_handled(self):
-        proc = _reload_processor()
-        content = b"\xff\xfe invalid"
-        result = proc.extract_text_from_file(content, "bad.txt")
-        # Should not raise, but return some text (errors='ignore')
-        assert isinstance(result, str)
-
-
-# ===========================================================================
-# processor – process_file_from_s3
-# ===========================================================================
+    def test_pdf_error_returns_empty(self):
+        with patch("backend.app.processor.PdfReader", side_effect=Exception("bad pdf")):
+            result = proc.extract_text_from_file(b"bad", "doc.pdf")
+        assert result == ""
 
 
 class TestProcessFileFromS3:
-    @mock_aws
-    def test_returns_skipped_when_already_processed(self):
-        proc = _reload_processor()
-        proc.mark_processed("uploads/doc.pdf")
-        result = proc.process_file_from_s3("my-bucket", "uploads/doc.pdf")
-        assert result == {"status": "skipped", "key": "uploads/doc.pdf"}
+    def _setup_dynamo(self, has_item=False):
+        mock_t = _mock_dynamodb_table(has_item)
+        mock_db = MagicMock()
+        mock_db.Table.return_value = mock_t
+        return mock_db, mock_t
 
-    @mock_aws
-    def test_returns_empty_when_no_text_extracted(self):
-        s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="my-bucket")
-        s3.put_object(Bucket="my-bucket", Key="uploads/blank.txt", Body=b"   ")
+    def test_skips_already_claimed(self):
+        mock_t = _mock_dynamodb_table()
+        mock_t.put_item.side_effect = ClientError(
+            {"Error": {"Code": "ConditionalCheckFailedException"}}, "PutItem"
+        )
+        mock_db = MagicMock()
+        mock_db.Table.return_value = mock_t
+        with patch.object(proc, "get_idempotency_table", return_value=mock_t):
+            result = proc.process_file_from_s3("bucket", "user/file.txt")
+        assert result["status"] == "skipped"
 
-        proc = _reload_processor()
+    def test_processes_new_file(self):
+        from botocore.exceptions import ClientError
 
-        # Mock extract_text_from_file to return empty string
-        with patch("backend.app.processor.extract_text_from_file", return_value=""):
-            result = proc.process_file_from_s3("my-bucket", "uploads/blank.txt")
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = None
+        mock_s3_client = MagicMock()
+        mock_s3_client.get_object.return_value = {
+            "Body": BytesIO(b"some text content here")
+        }
+        with patch.object(
+            proc, "get_idempotency_table", return_value=mock_t
+        ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
+            result = proc.process_file_from_s3("bucket", "user/file.txt")
+        assert result["status"] == "processed"
+        assert result["chunks"] >= 1
+        mock_s3v.index_document.assert_called()
+        mock_bm25_cache.append_to_corpus.assert_called()
 
+    def test_empty_file_returns_empty_status(self):
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = None
+        mock_s3_client = MagicMock()
+        mock_s3_client.get_object.return_value = {"Body": BytesIO(b"   ")}
+        with patch.object(
+            proc, "get_idempotency_table", return_value=mock_t
+        ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
+            result = proc.process_file_from_s3("bucket", "user/empty.txt")
         assert result["status"] == "empty"
 
-    @mock_aws
-    def test_happy_path_indexes_chunks(self):
-        s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="my-bucket")
-        s3.put_object(Bucket="my-bucket", Key="user1/doc.txt", Body=b"hello world text")
+    def test_s3_download_error_returns_error_status(self):
+        from botocore.exceptions import ClientError
 
-        index_calls = []
-        proc = _reload_processor(
-            {
-                "get_embedding": lambda t: [0.1] * 3,
-                "index_document": lambda **kw: index_calls.append(kw),
-            }
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = None
+        mock_s3_client = MagicMock()
+        mock_s3_client.get_object.side_effect = ClientError(
+            {"Error": {"Code": "NoSuchKey"}}, "GetObject"
         )
-
-        # Mock extract_text_from_file to return test text
-        with patch(
-            "backend.app.processor.extract_text_from_file",
-            return_value="hello world text",
-        ):
-            result = proc.process_file_from_s3("my-bucket", "user1/doc.txt")
-
-        assert result["status"] == "processed"
-        assert isinstance(result["chunks"], int) and result["chunks"] >= 1
-        assert len(index_calls) >= 1
-
-    @mock_aws
-    def test_happy_path_marks_key_processed(self):
-        s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="my-bucket")
-        s3.put_object(Bucket="my-bucket", Key="user1/doc.txt", Body=b"some content")
-
-        proc = _reload_processor(
-            {
-                "get_embedding": lambda t: [0.1] * 3,
-                "index_document": lambda **kw: None,
-            }
-        )
-
-        with patch(
-            "backend.app.processor.extract_text_from_file", return_value="some content"
-        ):
-            proc.process_file_from_s3("my-bucket", "user1/doc.txt")
-
-        assert proc.already_processed("user1/doc.txt")
-
-    @mock_aws
-    def test_second_call_with_same_key_is_skipped(self):
-        s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="my-bucket")
-        s3.put_object(Bucket="my-bucket", Key="user1/doc.txt", Body=b"content")
-
-        index_calls = []
-        proc = _reload_processor(
-            {
-                "get_embedding": lambda t: [],
-                "index_document": lambda **kw: index_calls.append(kw),
-            }
-        )
-
-        with patch(
-            "backend.app.processor.extract_text_from_file", return_value="content"
-        ):
-            proc.process_file_from_s3("my-bucket", "user1/doc.txt")
-            calls_after_first = len(index_calls)
-            result = proc.process_file_from_s3("my-bucket", "user1/doc.txt")
-
-        assert result["status"] == "skipped"
-        assert len(index_calls) == calls_after_first  # no extra indexing
-
-
-# ===========================================================================
-# worker_lambda – handler
-# ===========================================================================
-
-
-class TestWorkerLambdaHandler:
-    def test_empty_records_returns_zero_processed(self):
-        wl = _reload_worker()
-        result = wl.handler({"Records": []}, None)
-        assert result == {"processed": 0}
-
-    def test_missing_records_key_returns_zero_processed(self):
-        wl = _reload_worker()
-        result = wl.handler({}, None)
-        assert result == {"processed": 0}
-
-    def test_processes_each_record(self):
-        calls = []
-
-        def fake_process(bucket, key):
-            calls.append((bucket, key))
-            return {"status": "processed"}
-
-        wl = _reload_worker({"process_file_from_s3": fake_process})
-        event = {
-            "Records": [
-                {"body": json.dumps({"bucket": "b1", "key": "k1"})},
-                {"body": json.dumps({"bucket": "b2", "key": "k2"})},
-            ]
-        }
-        result = wl.handler(event, None)
-
-        assert result == {"processed": 2}
-        assert ("b1", "k1") in calls
-        assert ("b2", "k2") in calls
-
-    def test_processed_count_matches_record_count(self):
-        wl = _reload_worker(
-            {"process_file_from_s3": lambda b, k: {"status": "processed"}}
-        )
-        records = [
-            {"body": json.dumps({"bucket": "b", "key": f"k{i}"})} for i in range(5)
-        ]
-        result = wl.handler({"Records": records}, None)
-        assert result["processed"] == 5
+        with patch.object(
+            proc, "get_idempotency_table", return_value=mock_t
+        ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
+            result = proc.process_file_from_s3("bucket", "user/missing.txt")
+        assert result["status"] == "error"

@@ -15,4 +15,4 @@ requests-aws4auth
 requests
 pytest
 moto
-faiss-cpu
+google-genai

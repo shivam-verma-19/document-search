@@ -2,7 +2,7 @@
 Shared pytest fixtures for the document-search test suite.
 
 All AWS calls are intercepted by moto.
-LLM / embeddings / faiss are mocked.
+LLM / embeddings / S3 Vectors are mocked.
 Tests run fully offline.
 """
 
@@ -10,7 +10,9 @@ import importlib
 import io
 import json
 import os
+import sys
 import types
+from pathlib import Path
 
 import boto3
 import pytest
@@ -34,8 +36,35 @@ os.environ.setdefault(
     "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword",
 )
 os.environ.setdefault("FORBIDDEN_UPLOAD_PATTERNS", "")
-os.environ.setdefault("FAISS_PERSIST_DIR", "http:///tmp/faiss-test")
+os.environ.setdefault("S3_VECTOR_BUCKET_NAME", "rag-vector-bucket")
+os.environ.setdefault("S3_VECTOR_INDEX_NAME", "rag-doc-index")
 os.environ.setdefault("USE_BEDROCK", "false")
+
+# ---------------------------------------------------------------------------
+# MOCK API CLIENTS (before imports that use them)
+# ---------------------------------------------------------------------------
+from unittest import mock
+
+# Set mock API key to prevent "No API key provided" error
+os.environ.setdefault("GEMINI_API_KEY", "test-mock-key-12345")
+
+# Mock genai.Client to prevent connection attempts at module import time
+_mock_genai_client = mock.MagicMock()
+_mock_genai_client.models.generate_content.return_value = mock.MagicMock(
+    text="test response"
+)
+
+# Apply patch before any test modules import genai
+mock.patch("google.genai.Client", return_value=_mock_genai_client).start()
+
+import os
+import sys
+from pathlib import Path
+
+# Force the directory containing 'backend' to be the first entry in sys.path
+root_dir = str(Path(__file__).resolve().parent.parent)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -126,21 +155,40 @@ def app(monkeypatch):
     # -------------------------
     monkeypatch.setattr(
         "backend.app.embeddings.get_embedding",
-        lambda text: [0.1] * 1536,
+        lambda text: [0.1] * 768,
     )
 
     # -------------------------
-    # 🔥 NEW: FAISS
+    # S3 Vectors (replaces FAISS)
     # -------------------------
     monkeypatch.setattr(
-        "backend.app.faiss_client.index_document",
+        "backend.app.s3_vectors_client.index_document",
         lambda *args, **kwargs: None,
     )
 
     monkeypatch.setattr(
-        "backend.app.faiss_client.search_similar",
+        "backend.app.s3_vectors_client.search_similar",
         lambda emb, k=5: ["mock context 1", "mock context 2"],
     )
+    monkeypatch.setattr(
+        "backend.app.s3_vectors_client.delete_document",
+        lambda doc_id: {"result": "deleted", "_id": doc_id},
+    )
+
+    # -------------------------
+    # BM25 corpus cache
+    # -------------------------
+    monkeypatch.setattr(
+        "backend.app.bm25_cache.get_corpus",
+        lambda: ["mock context 1", "mock context 2", "mock context 3"],
+    )
+    monkeypatch.setattr("backend.app.bm25_cache.append_to_corpus", lambda texts: None)
+    monkeypatch.setattr("backend.app.bm25_cache.set_corpus", lambda texts: None)
+
+    # -------------------------
+    # Secrets
+    # -------------------------
+    monkeypatch.setattr("backend.app.secrets.get_secret", lambda key: "test-api-key")
 
     # -------------------------
     # Ingest

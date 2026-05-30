@@ -1,44 +1,53 @@
-import json
+import sys
+from unittest.mock import MagicMock, patch
 
-from backend.app import embeddings
+import pytest
+
+# Mock google.genai before importing the module under test
+_mock_genai = MagicMock()
+sys.modules["google"] = MagicMock()
+sys.modules["google.genai"] = _mock_genai
+
+import backend.app.embeddings as m  # noqa: E402
 
 
-class FakeBody:
-    def read(self):
-        return json.dumps({"embedding": [0.1, 0.2]}).encode()
-
-
-class FakeClient:
-    def __init__(self):
-        self.last_kwargs = {}
-
-    def invoke_model(self, **kwargs):
-        self.last_kwargs = kwargs
-        return {"body": FakeBody()}
+def _reset():
+    m._client = None
 
 
 class TestGetEmbedding:
-    def test_returns_list(self, monkeypatch):
-        monkeypatch.setattr(embeddings, "_get_client", lambda: FakeClient())
-        result = embeddings.get_embedding("hello")
-        assert isinstance(result, list)
-        assert result == [0.1, 0.2]
+    def _make_response(self, values):
+        embedding = MagicMock()
+        embedding.values = values
+        response = MagicMock()
+        response.embeddings = [embedding]
+        return response
 
-    def test_uses_titan_embed_v2(self, monkeypatch):
-        """Ensure we're using v2 (available in ap-south-1), not v1."""
-        client = FakeClient()
-        monkeypatch.setattr(embeddings, "_get_client", lambda: client)
-        embeddings.get_embedding("test")
-        assert client.last_kwargs["modelId"] == "amazon.titan-embed-text-v2:0"
+    def test_returns_float_list(self):
+        _reset()
+        mock_client = MagicMock()
+        mock_client.models.embed_content.return_value = self._make_response(
+            [0.1, 0.2, 0.3]
+        )
+        with patch.object(m, "_client", mock_client):
+            result = m.get_embedding("hello world")
+        assert result == [0.1, 0.2, 0.3]
 
-    def test_passes_input_text(self, monkeypatch):
-        client = FakeClient()
-        monkeypatch.setattr(embeddings, "_get_client", lambda: client)
-        embeddings.get_embedding("hello world")
-        body = json.loads(client.last_kwargs["body"])
-        assert body["inputText"] == "hello world"
+    def test_empty_text_returns_empty_list(self):
+        _reset()
+        result = m.get_embedding("")
+        assert result == []
 
-    def test_empty_string_input(self, monkeypatch):
-        monkeypatch.setattr(embeddings, "_get_client", lambda: FakeClient())
-        result = embeddings.get_embedding("")
-        assert isinstance(result, list)
+    def test_raises_on_api_error(self):
+        _reset()
+        mock_client = MagicMock()
+        mock_client.models.embed_content.side_effect = Exception("API error")
+        with patch.object(m, "_client", mock_client):
+            with pytest.raises(RuntimeError, match="Embedding failed"):
+                m.get_embedding("some text")
+
+    def test_no_api_key_raises(self):
+        _reset()
+        with patch("backend.app.secrets.get_secret", return_value=""):
+            with pytest.raises((ValueError, RuntimeError)):
+                m.get_embedding("hello")
