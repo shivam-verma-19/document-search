@@ -1,7 +1,7 @@
 import json
 from unittest.mock import patch
 
-from aiohttp import ClientError
+from botocore.exceptions import ClientError
 
 import backend.app.secrets as m
 
