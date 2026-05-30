@@ -174,7 +174,7 @@ class TestIngest:
         f = self._make_upload(
             content=b"data", filename="doc.txt", content_type="text/plain"
         )
-        with patch("backend.app.ingest.get_s3_client") as mock_s3:
+        with patch("backend.app.ingest.get_s3_client") as _:
             key = upload_file_to_s3(f, "user123")
         assert "user123" in key
         assert "doc" in key
@@ -188,8 +188,8 @@ class TestIngest:
         f = self._make_upload(
             content=b"data", filename="doc.txt", content_type="text/plain"
         )
-        with patch("backend.app.ingest.get_s3_client") as mock_s3:
-            mock_s3.return_value.upload_fileobj.side_effect = ClientError(
+        with patch("backend.app.ingest.get_s3_client") as _:
+            _.return_value.upload_fileobj.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchBucket", "Message": "err"}}, "PutObject"
             )
             with pytest.raises(HTTPException) as exc:

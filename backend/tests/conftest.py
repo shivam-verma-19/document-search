@@ -58,8 +58,6 @@ _mock_genai_client.models.generate_content.return_value = mock.MagicMock(
 mock.patch("google.genai.Client", return_value=_mock_genai_client).start()
 
 import os
-import sys
-from pathlib import Path
 
 # Force the directory containing 'backend' to be the first entry in sys.path
 root_dir = str(Path(__file__).resolve().parent.parent)

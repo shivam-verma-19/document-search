@@ -110,7 +110,7 @@ def append_to_corpus(new_texts: list[str]) -> None:
             updated = current + new_texts
             new_version = current_version + 1
 
-            condition = f"attribute_not_exists(#v) OR #v = :expected_version"
+            condition = "attribute_not_exists(#v) OR #v = :expected_version"
 
             _table().put_item(
                 Item={
