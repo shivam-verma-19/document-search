@@ -89,14 +89,14 @@ def aws_credentials():
 def s3_bucket(aws_credentials):
     with mock_aws():
         s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="rag-pipeline-upload-bucket")
+        s3.create_bucket(Bucket="rageline-upload-bucket")
         yield s3
 
 
 @pytest.fixture()
 def sqs_queue(aws_credentials):
     with mock_aws():
-        sqs = boto3.client("sqs", region_name="us-east-1") # type: ignore
+        sqs = boto3.client("sqs", region_name="us-east-1") #type: ignore
         resp = sqs.create_queue(QueueName="test-queue")
         os.environ["QUEUE_URL"] = resp["QueueUrl"]
         yield sqs, resp["QueueUrl"]
