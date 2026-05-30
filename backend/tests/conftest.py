@@ -96,7 +96,7 @@ def s3_bucket(aws_credentials):
 @pytest.fixture()
 def sqs_queue(aws_credentials):
     with mock_aws():
-        sqs = boto3.client("sqs", region_name="us-east-1") #type: ignore
+        sqs = boto3.client("sqs", region_name="us-east-1")  # type: ignore
         resp = sqs.create_queue(QueueName="test-queue")
         os.environ["QUEUE_URL"] = resp["QueueUrl"]
         yield sqs, resp["QueueUrl"]
