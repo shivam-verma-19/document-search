@@ -9,10 +9,10 @@ Covers:
 
 import backend.app.utils as m
 
-
 # ---------------------------------------------------------------------------
 # normalize_text
 # ---------------------------------------------------------------------------
+
 
 class TestNormalizeText:
     def test_lowercases(self):
@@ -34,6 +34,7 @@ class TestNormalizeText:
 # ---------------------------------------------------------------------------
 # clean_text
 # ---------------------------------------------------------------------------
+
 
 class TestCleanText:
     def test_removes_control_chars(self):
@@ -66,6 +67,7 @@ class TestCleanText:
 # ---------------------------------------------------------------------------
 # build_prompt
 # ---------------------------------------------------------------------------
+
 
 class TestBuildPrompt:
     def test_contains_context(self):
