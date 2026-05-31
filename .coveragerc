@@ -1,0 +1,13 @@
+source = backend
+omit =
+    */conftest.py
+    */stubs/*
+    */mocks/*
+    */__init__.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    pass
