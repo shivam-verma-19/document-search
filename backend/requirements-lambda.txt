@@ -11,3 +11,4 @@ requests
 google-genai
 slowapi
 langchain_core
+python-multipart
