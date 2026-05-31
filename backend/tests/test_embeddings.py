@@ -50,4 +50,4 @@ class TestGetEmbedding:
         _reset()
         with patch("backend.app.secrets.get_secret", return_value=""):
             with pytest.raises((ValueError, RuntimeError)):
-                m._get_client() 
+                m._get_client()

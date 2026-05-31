@@ -33,8 +33,8 @@ class TestGetCorpus:
             # _table is called as a function, so patch the function itself
             with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
                 result = m.get_corpus()
-        assert result == ["a", "b"]  
-        assert m._warm_version == 3 
+        assert result == ["a", "b"]
+        assert m._warm_version == 3
 
     def test_dynamo_miss_returns_empty_and_warms(self):
         _reset()
