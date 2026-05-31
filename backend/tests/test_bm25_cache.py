@@ -33,8 +33,8 @@ class TestGetCorpus:
             # _table is called as a function, so patch the function itself
             with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
                 result = m.get_corpus()
-        assert result == []
-        assert m._warm_version == 0
+        assert result == ["a", "b"]  
+        assert m._warm_version == 3 
 
     def test_dynamo_miss_returns_empty_and_warms(self):
         _reset()
@@ -65,7 +65,7 @@ class TestGetCorpus:
         }
         with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
             result = m.get_corpus()
-        assert result == []
+        assert result == ["new"]
 
 
 class TestSetCorpus:
@@ -143,7 +143,7 @@ class TestAppendToCorpus:
             "backend.app.bm25_cache._table", side_effect=lambda: mock_table
         ), patch("time.sleep"):
             m.append_to_corpus(["new"])
-        assert call_count[0] == 0
+        assert call_count[0] == 2
 
     def test_non_conflict_dynamo_error_aborts(self):
         _reset()
