@@ -33,9 +33,8 @@ mock_bm25_cache = MagicMock()
 mock_bm25_cache.append_to_corpus = MagicMock()
 sys.modules["backend.app.bm25_cache"] = mock_bm25_cache
 
-mock_secrets = MagicMock()
-mock_secrets.get_secret = MagicMock(return_value="test-key")
-sys.modules["backend.app.secrets"] = mock_secrets
+with patch("backend.app.secrets.get_secret", return_value="test-key"):
+    import backend.app.processor as proc
 
 for key in [k for k in list(sys.modules) if "backend.app.processor" in k]:
     del sys.modules[key]

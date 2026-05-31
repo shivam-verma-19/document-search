@@ -13,9 +13,6 @@ logger = logging.getLogger(__name__)
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-from .secrets import get_secret
-
-GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.65"))
 
@@ -66,11 +63,16 @@ _client = None
 
 
 def _get_client():
+    """Lazily initialise the Gemini client so module import never triggers a
+    network call and key rotation is picked up after a container restart."""
     global _client
     if _client is None:
-        if not GEMINI_API_KEY:
+        from .secrets import get_secret
+
+        api_key = get_secret("GEMINI_API_KEY")
+        if not api_key:
             raise ValueError("GEMINI_API_KEY not configured. Check secrets.")
-        _client = genai.Client(api_key=GEMINI_API_KEY)
+        _client = genai.Client(api_key=api_key)
     return _client
 
 
@@ -110,18 +112,6 @@ class RouterResult:
             "attempted": self.attempted,
             "errors": self.errors,
         }
-
-
-# ─── Lazy Gemini client ───────────────────────────────────────────────────────
-
-_configured = False
-
-
-def _ensure_configured():
-    global _configured
-    if not _configured:
-        genai.Client(api_key=GEMINI_API_KEY)
-        _configured = True
 
 
 # ─── Complexity classifier ────────────────────────────────────────────────────
@@ -193,14 +183,10 @@ def _invoke_gemini(prompt: str, max_tokens: int = 1024) -> ModelResponse:
         response = _get_client().models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=max_tokens,
-            ),
+            config=types.GenerateContentConfig(max_output_tokens=max_tokens),
         )
-
         text = (response.text or "").strip()
         return ModelResponse(model=GEMINI_MODEL, text=text, success=True)
-
     except Exception as exc:
         logger.exception("Gemini invocation failed")
         return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))
@@ -259,6 +245,14 @@ def route_and_invoke(prompt: str, query: str = "", context: str = ""):
         ).to_dict()
 
     errors[retry_label] = retry.error or "unknown"
+
+    # ── Both tiers failed — log for CloudWatch visibility ─────────────────────
+    logger.error(
+        "All model tiers failed. Errors: %s | Attempted: %s",
+        errors,
+        attempted,
+        exc_info=True,
+    )
 
     return RouterResult(
         answer="Error: all model tiers failed to generate a response.",
