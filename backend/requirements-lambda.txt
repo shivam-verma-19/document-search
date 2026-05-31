@@ -9,3 +9,5 @@ python-jose
 pydantic-settings
 requests
 google-genai
+slowapi
+langchain_core
