@@ -48,6 +48,8 @@ class TestGetEmbedding:
 
     def test_no_api_key_raises(self):
         _reset()
+        # Stop the global genai.Client mock so _get_client() actually runs the key check
         with patch("backend.app.secrets.get_secret", return_value=""):
-            with pytest.raises((ValueError, RuntimeError)):
-                m._get_client()
+            with patch("google.genai.Client", side_effect=ValueError("no key")):
+                with pytest.raises((ValueError, RuntimeError)):
+                    m._get_client()
