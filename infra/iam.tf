@@ -57,8 +57,6 @@ resource "aws_iam_policy" "lambda_policy" {
         Resource = "arn:aws:s3:::rag-pipeline-upload-bucket"
       },
 
-      # S3 Vectors — needed by s3_vectors_client.py
-      # FIX: was missing entirely; Lambda had no permission to call s3vectors APIs
       {
         Effect = "Allow"
         Action = [
@@ -69,8 +67,8 @@ resource "aws_iam_policy" "lambda_policy" {
           "s3vectors:ListVectors"
         ]
         Resource = [
-          aws_s3vectors_vector_bucket.rag_vectors.arn,
-          "${aws_s3vectors_vector_bucket.rag_vectors.arn}/*"
+          "arn:aws:s3vectors:ap-south-1:879381267339:bucket/rag-vector-bucket",
+          "arn:aws:s3vectors:ap-south-1:879381267339:bucket/rag-vector-bucket/*"
         ]
       },
 
