@@ -5,7 +5,7 @@ resource "aws_lambda_function" "rag_api" {
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
   handler     = "backend.app.main.handler"
-  runtime     = "python3.12"
+  runtime     = "python3.10"
   role        = aws_iam_role.lambda_role.arn
 
   timeout     = 30
@@ -48,7 +48,7 @@ resource "aws_lambda_function" "rag_ingest_worker" {
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
   handler     = "backend.app.worker_lambda.handler"
-  runtime     = "python3.12"
+  runtime     = "python3.10"
   role        = aws_iam_role.lambda_role.arn
 
   timeout     = 120
