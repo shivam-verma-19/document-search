@@ -124,7 +124,10 @@ def ask(
     q: str = Query(..., min_length=1, max_length=500),
     user: dict = Depends(verify_cognito_token),
 ):
-    return {"answer": ask_question(q)}
+    answer = ask_question(q)
+    if answer.startswith("Error:") or "all model tiers failed" in answer:
+        return JSONResponse(status_code=503, content={"answer": answer})
+    return {"answer": answer}
 
 
 @limiter.limit("20/minute")

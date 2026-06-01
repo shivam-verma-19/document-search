@@ -9,6 +9,8 @@ from typing import Literal, Optional
 from google import genai
 from google.genai import types
 
+from .retry import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -179,22 +181,23 @@ def score_confidence(query: str, answer: str) -> float:
 
 
 def _invoke_gemini(prompt: str, max_tokens: int = 1024) -> ModelResponse:
-    try:
+    def _call():
         response = _get_client().models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(max_output_tokens=max_tokens),
         )
-        text = (response.text or "").strip()
+        return (response.text or "").strip()
+
+    try:
+        text = retry_with_backoff(_call, max_retries=3, base_delay_ms=3000)
         return ModelResponse(model=GEMINI_MODEL, text=text, success=True)
-    except ValueError as exc:  # missing GEMINI_API_KEY
+    except ValueError as exc:
         logger.error(
-            "Gemini config error — check GEMINI_API_KEY in Secrets Manager: %s",
-            exc,
-            exc_info=True,
+            "Gemini config error — check GEMINI_API_KEY: %s", exc, exc_info=True
         )
         return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))
-    except Exception as exc:  # API errors, network, etc.
+    except Exception as exc:
         logger.error("Gemini invocation failed: %s", exc, exc_info=True)
         return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))
 

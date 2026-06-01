@@ -10,15 +10,12 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        # FIX: call get_secret lazily inside _get_client so the module can be
-        # imported without a network call, and key rotation is picked up after
-        # a container restart.
         from .secrets import get_secret
 
         api_key = get_secret("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY not configured. Check secrets.")
-        _client = genai.Client(api_key=api_key)
+        _client = genai.Client(api_key=api_key, http_options={"api_version": "v1"})
     return _client
 
 

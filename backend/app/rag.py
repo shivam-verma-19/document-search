@@ -98,6 +98,7 @@ def invoke_llm_with_retry(
         return retry_with_backoff(
             lambda: client.invoke(prompt=prompt, query=query, context=context),
             max_retries=max_retries,
+            base_delay_ms=3000,
         )
     except Exception as e:
         logger.error(f"LLM invocation failed: {e}", exc_info=True)
@@ -166,7 +167,10 @@ def ask_question(query: str) -> str:
     )
     if result and result.get("answer"):
         answer = f"I couldn't find relevant documents. Based on my knowledge:\n\n{result['answer']}"
-        set_cached_answer(query, answer)
+        if result and result.get("answer"):
+            answer = f"I couldn't find relevant documents. Based on my knowledge:\n\n{result['answer']}"
+            if not result["answer"].startswith("Error:"):
+                set_cached_answer(query, answer)
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
         emit_confidence_metric(0.5, escalated=False, path="fallback", source="llm")
