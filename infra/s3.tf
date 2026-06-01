@@ -2,7 +2,7 @@ resource "aws_s3_bucket" "uploads" {
   bucket = "rag-pipeline-upload-bucket"
 }
 
-# Server-side encryption configuration (separate resource to avoid deprecation warning)
+# Server-side encryption
 resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   bucket = aws_s3_bucket.uploads.id
 
@@ -36,7 +36,7 @@ resource "aws_s3_bucket_policy" "uploads_tls" {
       ]
       Condition = {
         Bool = {
-          "aws:SecureTransport": "false"
+          "aws:SecureTransport" : "false"
         }
       }
     }]
@@ -47,7 +47,23 @@ resource "aws_s3_object" "lambda_deployment" {
   bucket = aws_s3_bucket.uploads.id
   key    = "deployments/lambda_backend.zip"
   source = var.lambda_zip_path
-  
-  # The etag forces Terraform to upload the file again if the code changes
   etag   = filemd5(var.lambda_zip_path)
+}
+
+# ─── S3 Vectors (vector store for RAG) ───────────────────────────────────────
+# The backend uses s3_vectors_client.py which calls the s3vectors boto3 client.
+# VECTOR_BUCKET_NAME and VECTOR_INDEX_NAME env vars must match these resource names.
+
+resource "aws_s3vectors_vector_bucket" "rag_vectors" {
+  vector_bucket_name = "rag-vector-bucket"
+}
+
+resource "aws_s3vectors_index" "rag_doc_index" {
+  vector_bucket_name = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
+  index_name         = "rag-doc-index"
+
+  # Must match EXPECTED_DIMENSION in s3_vectors_client.py (Gemini text-embedding-004 = 768)
+  data_type  = "float32"
+  dimension  = 768
+  distance_metric = "cosine"
 }

@@ -1,28 +1,31 @@
 resource "aws_lambda_function" "rag_api" {
-  function_name = "${var.project_name}-api"
+  function_name    = "${var.project_name}-api"
   s3_bucket        = aws_s3_object.lambda_deployment.bucket
   s3_key           = aws_s3_object.lambda_deployment.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
-  handler = "backend.app.main.handler"
-  runtime = "python3.10"
-  role    = aws_iam_role.lambda_role.arn
+  handler     = "backend.app.main.handler"
+  runtime     = "python3.12"
+  role        = aws_iam_role.lambda_role.arn
 
   timeout     = 30
   memory_size = 1024
 
   environment {
     variables = {
-      QUEUE_URL               = aws_sqs_queue.rag_queue.id
-      SECRET_NAME             = aws_secretsmanager_secret.rag_secrets.name
-      BUCKET_NAME             = aws_s3_bucket.uploads.bucket
-      USE_BEDROCK             = "true"
-      BEDROCK_CLAUDE_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
-      BEDROCK_LLAMA_MODEL_ID  = "meta.llama3-8b-instruct-v1:0"
+      QUEUE_URL    = aws_sqs_queue.rag_queue.id
+      SECRET_NAME  = aws_secretsmanager_secret.rag_secrets.name
+      BUCKET_NAME  = aws_s3_bucket.uploads.bucket
 
-      FAISS_INDEX_DIR = "/tmp/faiss"
+      # S3 Vectors — must match resource names in s3.tf
+      S3_VECTOR_BUCKET_NAME = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
+      S3_VECTOR_INDEX_NAME  = aws_s3vectors_index.rag_doc_index.index_name
+      EMBEDDING_DIMENSION   = "768"
 
-      # Variables for JWT verification
+      # Gemini model
+      GEMINI_MODEL = "gemini-2.5-flash"
+
+      # Cognito for JWT verification
       COGNITO_USER_POOL_ID = aws_cognito_user_pool.user_pool.id
       COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.client.id
     }
@@ -39,24 +42,26 @@ resource "aws_lambda_function" "rag_api" {
 }
 
 resource "aws_lambda_function" "rag_ingest_worker" {
-  function_name = "${var.project_name}-ingest-worker"
+  function_name    = "${var.project_name}-ingest-worker"
   s3_bucket        = aws_s3_object.lambda_deployment.bucket
   s3_key           = aws_s3_object.lambda_deployment.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
-  handler = "backend.app.worker_lambda.handler"
-  runtime = "python3.10"
-  role    = aws_iam_role.lambda_role.arn
+  handler     = "backend.app.worker_lambda.handler"
+  runtime     = "python3.12"
+  role        = aws_iam_role.lambda_role.arn
 
   timeout     = 120
   memory_size = 1024
 
   environment {
     variables = {
-      SECRET_NAME = aws_secretsmanager_secret.rag_secrets.name
-      BUCKET_NAME = aws_s3_bucket.uploads.bucket
+      SECRET_NAME  = aws_secretsmanager_secret.rag_secrets.name
+      BUCKET_NAME  = aws_s3_bucket.uploads.bucket
 
-      FAISS_INDEX_DIR = "/tmp/faiss"
+      S3_VECTOR_BUCKET_NAME = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
+      S3_VECTOR_INDEX_NAME  = aws_s3vectors_index.rag_doc_index.index_name
+      EMBEDDING_DIMENSION   = "768"
     }
   }
 

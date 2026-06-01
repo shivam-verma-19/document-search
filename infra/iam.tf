@@ -1,5 +1,5 @@
 ########################################
-# 🔹 LAMBDA EXECUTION ROLE
+# LAMBDA EXECUTION ROLE
 ########################################
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
@@ -7,17 +7,15 @@ resource "aws_iam_role" "lambda_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
 }
 
 ########################################
-# 🔹 BASIC LAMBDA LOGGING
+# BASIC LAMBDA LOGGING
 ########################################
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
@@ -25,7 +23,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 }
 
 ########################################
-# 🔹 CUSTOM LAMBDA POLICY
+# CUSTOM LAMBDA POLICY
 ########################################
 resource "aws_iam_policy" "lambda_policy" {
   name = "${var.project_name}-lambda-policy"
@@ -34,9 +32,7 @@ resource "aws_iam_policy" "lambda_policy" {
     Version = "2012-10-17"
     Statement = [
 
-      ##################################
       # DynamoDB (cache + metrics)
-      ##################################
       {
         Effect = "Allow"
         Action = [
@@ -49,26 +45,36 @@ resource "aws_iam_policy" "lambda_policy" {
         Resource = "arn:aws:dynamodb:*:*:table/rag-*"
       },
 
-      ##################################
-      # S3 (file uploads)
-      ##################################
+      # S3 uploads bucket
       {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject"
-        ]
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
         Resource = "arn:aws:s3:::rag-pipeline-upload-bucket/*"
       },
       {
-        Effect = "Allow"
-        Action = "s3:ListBucket"
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
         Resource = "arn:aws:s3:::rag-pipeline-upload-bucket"
       },
 
-      ##################################
-      # SQS (queue processing)
-      ##################################
+      # S3 Vectors — needed by s3_vectors_client.py
+      # FIX: was missing entirely; Lambda had no permission to call s3vectors APIs
+      {
+        Effect = "Allow"
+        Action = [
+          "s3vectors:PutVectors",
+          "s3vectors:GetVectors",
+          "s3vectors:QueryVectors",
+          "s3vectors:DeleteVectors",
+          "s3vectors:ListVectors"
+        ]
+        Resource = [
+          aws_s3vectors_vector_bucket.rag_vectors.arn,
+          "${aws_s3vectors_vector_bucket.rag_vectors.arn}/*"
+        ]
+      },
+
+      # SQS
       {
         Effect = "Allow"
         Action = [
@@ -84,39 +90,25 @@ resource "aws_iam_policy" "lambda_policy" {
         ]
       },
 
-      ##################################
       # Secrets Manager
-      # ✅ FIX 10: removed duplicate — was also in inline policy below
-      ##################################
       {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = aws_secretsmanager_secret.rag_secrets.arn
       },
 
-      ##################################
-      # ✅ FIX 8: Bedrock — was missing entirely
-      # bedrock_router.py calls bedrock-runtime for Claude + Llama
-      ##################################
+      # CloudWatch custom metrics (monitoring.py calls put_metric_data)
       {
-        Effect = "Allow"
-        Action = [
-          "bedrock:InvokeModel"
-        ]
-        Resource = [
-          "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
-          "arn:aws:bedrock:*::foundation-model/meta.llama3-8b-instruct-v1:0",
-          "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
-        ]
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
       }
     ]
   })
 }
 
 ########################################
-# 🔹 ATTACH POLICY TO LAMBDA ROLE
+# ATTACH POLICY
 ########################################
 resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
   role       = aws_iam_role.lambda_role.name

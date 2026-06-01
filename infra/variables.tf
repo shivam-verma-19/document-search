@@ -22,3 +22,9 @@ variable "alert_email" {
   type        = string
   default     = "shlok.shivam0227@gmail.com"
 }
+
+variable "gemini_api_key" {
+  description = "Gemini API key stored in Secrets Manager"
+  type        = string
+  sensitive   = true
+}

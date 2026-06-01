@@ -187,6 +187,12 @@ def _invoke_gemini(prompt: str, max_tokens: int = 1024) -> ModelResponse:
         )
         text = (response.text or "").strip()
         return ModelResponse(model=GEMINI_MODEL, text=text, success=True)
+    except ValueError as exc:
+        logger.error(
+            "Gemini client config error (check GEMINI_API_KEY in Secrets Manager): %s",
+            exc,
+        )
+        return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))
     except Exception as exc:
         logger.exception("Gemini invocation failed")
         return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))

@@ -60,7 +60,7 @@ def _load_rag(
     import backend.app.gemini_client as gemini_router
     import backend.app.metrics as metrics_mod
     import backend.app.reranker as reranker_mod
-    import backend.app.s3_vectors_client as faiss_mod
+    import backend.app.s3_vectors_client as s3vec_mod
     from backend.app.hybrid import BM25Retriever
 
     # Metrics
@@ -73,14 +73,14 @@ def _load_rag(
     # Embeddings
     monkeypatch.setattr(embeddings_mod, "get_embedding", lambda q: [0.1, 0.2, 0.3])
 
-    # FAISS — vector search results
+    # S3 Vectors — vector search results
     monkeypatch.setattr(
-        faiss_mod, "search_similar", lambda embedding, k=5: search_results[:k]
+        s3vec_mod, "search_similar", lambda embedding, k=5: search_results[:k]
     )
 
-    # FAISS — all docs for BM25 corpus
+    # S3 Vectors — all docs for BM25 corpus
     monkeypatch.setattr(
-        faiss_mod, "get_all_documents", lambda: [r for r in search_results]
+        s3vec_mod, "get_all_documents", lambda: [r for r in search_results]
     )
 
     # Reranker
@@ -157,13 +157,13 @@ class TestHybridSearch:
 
     def test_returns_empty_on_both_legs_failing(self, monkeypatch):
         rag = _load_rag(monkeypatch)
-        import backend.app.s3_vectors_client as faiss_mod
+        import backend.app.s3_vectors_client as s3vec_mod
         from backend.app.hybrid import BM25Retriever
 
         monkeypatch.setattr(
-            faiss_mod,
+            s3vec_mod,
             "search_similar",
-            mock.MagicMock(side_effect=Exception("faiss down")),
+            mock.MagicMock(side_effect=Exception("s3 vectors down")),
         )
         monkeypatch.setattr(
             BM25Retriever, "search", mock.MagicMock(side_effect=Exception("bm25 down"))
