@@ -29,17 +29,11 @@ mock_embeddings = MagicMock()
 mock_embeddings.get_embedding = MagicMock(return_value=[0.1] * 768)
 sys.modules["backend.app.embeddings"] = mock_embeddings
 
-mock_bm25_cache = MagicMock()
-mock_bm25_cache.append_to_corpus = MagicMock()
-sys.modules["backend.app.bm25_cache"] = mock_bm25_cache
-
 with patch("backend.app.secrets.get_secret", return_value="test-key"):
     import backend.app.processor as proc
 
-for key in [k for k in list(sys.modules) if "backend.app.processor" in k]:
-    del sys.modules[key]
-
-import backend.app.processor as proc  # noqa: E402
+mock_append_to_corpus = MagicMock()
+proc.append_to_corpus = mock_append_to_corpus
 
 
 def _mock_dynamodb_table(has_item: bool = False):
@@ -85,13 +79,15 @@ class TestTextExtraction:
     def test_pdf_extraction(self):
         mock_page = MagicMock()
         mock_page.extract_text.return_value = "pdf text"
-        with patch("backend.app.processor.PdfReader") as mock_reader:
+
+        with patch.object(proc, "PdfReader") as mock_reader:
             mock_reader.return_value.pages = [mock_page]
             result = proc.extract_text_from_file(b"%PDF-fake", "doc.pdf")
+
         assert result == "pdf text"
 
     def test_pdf_error_returns_empty(self):
-        with patch("backend.app.processor.PdfReader", side_effect=Exception("bad pdf")):
+        with patch.object(proc, "PdfReader", side_effect=Exception("bad pdf")):
             result = proc.extract_text_from_file(b"bad", "doc.pdf")
         assert result == ""
 
@@ -130,7 +126,7 @@ class TestProcessFileFromS3:
         assert result["status"] == "processed"
         assert result["chunks"] >= 1
         mock_s3v.index_document.assert_called()
-        mock_bm25_cache.append_to_corpus.assert_called()
+        mock_append_to_corpus.assert_called()
 
     def test_empty_file_returns_empty_status(self):
         mock_t = MagicMock()
