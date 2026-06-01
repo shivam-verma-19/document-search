@@ -187,14 +187,8 @@ def _invoke_gemini(prompt: str, max_tokens: int = 1024) -> ModelResponse:
         )
         text = (response.text or "").strip()
         return ModelResponse(model=GEMINI_MODEL, text=text, success=True)
-    except ValueError as exc:
-        logger.error(
-            "Gemini client config error (check GEMINI_API_KEY in Secrets Manager): %s",
-            exc,
-        )
-        return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))
     except Exception as exc:
-        logger.exception("Gemini invocation failed")
+        logger.error("Gemini invocation failed: %s", exc, exc_info=True)
         return ModelResponse(model=GEMINI_MODEL, text="", success=False, error=str(exc))
 
 
@@ -252,13 +246,8 @@ def route_and_invoke(prompt: str, query: str = "", context: str = ""):
 
     errors[retry_label] = retry.error or "unknown"
 
-    # ── Both tiers failed — log for CloudWatch visibility ─────────────────────
-    logger.error(
-        "All model tiers failed. Errors: %s | Attempted: %s",
-        errors,
-        attempted,
-        exc_info=True,
-    )
+    error_summary = f"Errors: {errors} | Attempted: {attempted}"
+    logger.error("All model tiers failed. %s", error_summary)
 
     return RouterResult(
         answer="Error: all model tiers failed to generate a response.",

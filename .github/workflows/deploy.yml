@@ -169,7 +169,10 @@ jobs:
         
       - name: Terraform Plan
         run: terraform plan
+        env:
+          TF_VAR_gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
         working-directory: infra
+
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
