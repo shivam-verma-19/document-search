@@ -12,3 +12,4 @@ google-genai
 slowapi
 langchain_core
 python-multipart
+pydantic_core
