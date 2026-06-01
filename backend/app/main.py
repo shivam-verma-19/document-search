@@ -1,4 +1,7 @@
 import asyncio
+import logging
+import os
+import sys
 
 from fastapi import Depends, FastAPI, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -7,6 +10,14 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+
+# Must be before any other app code
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 
 from backend.app import ingest
 
