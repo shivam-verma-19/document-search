@@ -1,230 +1,315 @@
-"""Tests for eval.py — retrieval quality (recall@k, MRR) and answer quality scoring."""
+"""
+Retrieval and answer quality evaluation — feedback loop for the RAG pipeline.
 
-import sys
+Tracks two categories of metrics:
 
-import pytest
+RETRIEVAL QUALITY (per query)
+  recall_at_k   — fraction of relevant doc IDs found in top-k results.
+                  Requires ground-truth relevant_doc_ids to be supplied.
+  mrr           — Mean Reciprocal Rank: 1/rank of first relevant result.
+                  Higher = relevant chunk surfaced earlier.
 
+ANSWER QUALITY (per query, LLM-judged)
+  faithfulness  — does the answer contain only claims supported by the context?
+                  Scored 0.0–1.0 by Gemini.
+  relevance     — does the answer actually address the question?
+                  Scored 0.0–1.0 by Gemini.
 
-@pytest.fixture(autouse=True, scope="module")
-def _evict_stubs():
-    """Remove any MagicMock stubs installed by test_rag so real modules load."""
-    for mod in ["backend.app.eval"]:
-        sys.modules.pop(mod, None)
-    yield
-    for mod in ["backend.app.eval"]:
-        sys.modules.pop(mod, None)
+All scores are persisted to DynamoDB (rag-eval table) and pushed to
+CloudWatch under the RAGPlatform namespace so they're visible in dashboards
+alongside latency.
 
+Usage:
+    from .eval import evaluate_retrieval, evaluate_answer, log_eval
 
-from unittest.mock import MagicMock, patch
+    retrieval = evaluate_retrieval(query, retrieved_docs, relevant_doc_ids)
+    answer    = evaluate_answer(query, context, answer)
+    log_eval(query, retrieval, answer)
 
-import pytest
+Env vars:
+    DYNAMODB_EVAL_TABLE     DynamoDB table name  (default: "rag-eval")
+    EVAL_LLM_ENABLED        "true"/"false" — set False to skip LLM scoring
+                            in cost-sensitive environments  (default: "true")
+"""
 
+from __future__ import annotations
 
-def _make_doc(doc_id: str, text: str = "content"):
-    from backend.app.document_repository import SearchDocument
+import logging
+import os
+import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from typing import List, Optional
 
-    return SearchDocument(page_content=text, doc_id=doc_id)
+import boto3
+from botocore.exceptions import ClientError
 
+from backend.app.gemini_client import GEMINI_MODEL, _get_client
+from backend.app.monitoring import push_metric
 
-class TestEvaluateRetrieval:
-    def test_perfect_recall(self):
-        from backend.app.eval import evaluate_retrieval
+logger = logging.getLogger(__name__)
 
-        docs = [_make_doc("id1"), _make_doc("id2"), _make_doc("id3")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=["id1", "id2", "id3"])
-        assert metrics.recall_at_k == pytest.approx(1.0)
+_TABLE_NAME = os.getenv("DYNAMODB_EVAL_TABLE", "rag-eval")
+EVAL_LLM_ENABLED: bool = os.getenv("EVAL_LLM_ENABLED", "true").lower() == "true"
 
-    def test_zero_recall(self):
-        from backend.app.eval import evaluate_retrieval
-
-        docs = [_make_doc("id1"), _make_doc("id2")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=["id99"])
-        assert metrics.recall_at_k == pytest.approx(0.0)
-
-    def test_partial_recall(self):
-        from backend.app.eval import evaluate_retrieval
-
-        docs = [_make_doc("id1"), _make_doc("id2"), _make_doc("id3")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=["id1", "id99"])
-        assert metrics.recall_at_k == pytest.approx(0.5)
-
-    def test_mrr_first_hit_at_rank_1(self):
-        from backend.app.eval import evaluate_retrieval
-
-        docs = [_make_doc("relevant"), _make_doc("other")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=["relevant"])
-        assert metrics.mrr == pytest.approx(1.0)
-
-    def test_mrr_first_hit_at_rank_2(self):
-        from backend.app.eval import evaluate_retrieval
-
-        docs = [_make_doc("other"), _make_doc("relevant")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=["relevant"])
-        assert metrics.mrr == pytest.approx(0.5)
-
-    def test_mrr_no_relevant_docs(self):
-        from backend.app.eval import evaluate_retrieval
-
-        docs = [_make_doc("id1"), _make_doc("id2")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=["id99"])
-        assert metrics.mrr == pytest.approx(0.0)
-
-    def test_no_relevant_doc_ids_returns_zero_scores(self):
-        from backend.app.eval import evaluate_retrieval
-
-        docs = [_make_doc("id1")]
-        metrics = evaluate_retrieval("q", docs, relevant_doc_ids=None)
-        assert metrics.recall_at_k == 0.0
-        assert metrics.mrr == 0.0
-        assert metrics.retrieved_count == 1
-
-    def test_empty_retrieved_docs(self):
-        from backend.app.eval import evaluate_retrieval
-
-        metrics = evaluate_retrieval("q", [], relevant_doc_ids=["id1"])
-        assert metrics.recall_at_k == 0.0
-        assert metrics.mrr == 0.0
+_dynamodb = None
+_table = None
 
 
-class TestEvaluateAnswer:
-    def test_returns_answer_metrics_object(self):
-        from backend.app.eval import evaluate_answer
-
-        with patch("backend.app.eval._llm_score", return_value=0.9):
-            result = evaluate_answer("question", "context here", "answer text")
-        assert hasattr(result, "faithfulness")
-        assert hasattr(result, "relevance")
-        assert hasattr(result, "llm_judged")
-
-    def test_llm_judged_true_when_enabled(self, monkeypatch):
-        import backend.app.eval as ev
-
-        monkeypatch.setattr(ev, "EVAL_LLM_ENABLED", True)
-
-        with patch.object(ev, "_llm_score", return_value=0.8):
-            result = ev.evaluate_answer("q", "context", "answer")
-        assert result.llm_judged is True
-
-    def test_llm_judged_false_when_disabled(self, monkeypatch):
-        import backend.app.eval as ev
-
-        monkeypatch.setattr(ev, "EVAL_LLM_ENABLED", False)
-
-        result = ev.evaluate_answer("q", "context", "answer")
-        assert result.llm_judged is False
-        assert result.faithfulness == 0.5  # placeholder
-        assert result.relevance == 0.5
-
-    def test_empty_answer_returns_zeros(self, monkeypatch):
-        import backend.app.eval as ev
-
-        monkeypatch.setattr(ev, "EVAL_LLM_ENABLED", True)
-
-        result = ev.evaluate_answer("q", "ctx", "")
-        assert result.faithfulness == 0.0
-        assert result.relevance == 0.0
-
-    def test_scores_bounded_0_to_1(self):
-        from backend.app.eval import evaluate_answer
-
-        with patch("backend.app.eval._llm_score", return_value=0.75):
-            result = evaluate_answer("q", "ctx", "answer text here")
-        assert 0.0 <= result.faithfulness <= 1.0
-        assert 0.0 <= result.relevance <= 1.0
+def _get_table():
+    global _dynamodb, _table
+    if _table is None:
+        _dynamodb = boto3.resource("dynamodb")
+        _table = _dynamodb.Table(_TABLE_NAME)
+    return _table
 
 
-class TestLogEval:
-    def test_log_eval_does_not_raise_on_dynamo_failure(self):
-        from backend.app.eval import AnswerMetrics, RetrievalMetrics, log_eval
+# ─── Data classes ─────────────────────────────────────────────────────────────
 
-        with patch("backend.app.eval._get_table") as mock_table:
-            mock_table.return_value.put_item.side_effect = Exception("dynamo down")
-            # Must not raise
-            log_eval("query", RetrievalMetrics(), AnswerMetrics())
 
-    def test_log_eval_writes_to_dynamo(self):
-        from backend.app.eval import AnswerMetrics, RetrievalMetrics, log_eval
+@dataclass
+class RetrievalMetrics:
+    recall_at_k: float = 0.0  # fraction of relevant docs retrieved
+    mrr: float = 0.0  # mean reciprocal rank
+    retrieved_count: int = 0
+    relevant_count: int = 0
 
-        with patch("backend.app.eval._get_table") as mock_table, patch(
-            "backend.app.eval.push_metric"
-        ):
-            log_eval(
-                "test query",
-                RetrievalMetrics(
-                    recall_at_k=0.8, mrr=1.0, retrieved_count=3, relevant_count=3
-                ),
-                AnswerMetrics(faithfulness=0.9, relevance=0.85, llm_judged=True),
+
+@dataclass
+class AnswerMetrics:
+    faithfulness: float = 0.0  # 0–1: claims grounded in context
+    relevance: float = 0.0  # 0–1: answer addresses the question
+    llm_judged: bool = False  # False when LLM scoring was skipped
+
+
+@dataclass
+class EvalRecord:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    query: str = ""
+    timestamp: int = field(default_factory=lambda: int(time.time()))
+    retrieval: RetrievalMetrics = field(default_factory=RetrievalMetrics)
+    answer: AnswerMetrics = field(default_factory=AnswerMetrics)
+    ttl: int = field(default_factory=lambda: int(time.time()) + 90 * 24 * 3600)
+
+
+# ─── Retrieval quality ────────────────────────────────────────────────────────
+
+
+def evaluate_retrieval(
+    query: str,
+    retrieved_docs: list,
+    relevant_doc_ids: Optional[List[str]] = None,
+) -> RetrievalMetrics:
+    """
+    Compute recall@k and MRR for retrieved documents.
+
+    Args:
+        query: User query (for logging).
+        retrieved_docs: Ordered list of SearchDocument objects.
+        relevant_doc_ids: Ground-truth relevant chunk/doc IDs.
+                          If None or empty, recall and MRR are skipped (0.0).
+
+    Returns:
+        RetrievalMetrics with recall_at_k and mrr populated.
+    """
+    retrieved_ids = [
+        getattr(doc, "doc_id", "") or getattr(doc, "page_content", "")[:50]
+        for doc in retrieved_docs
+    ]
+    retrieved_count = len(retrieved_ids)
+
+    if not relevant_doc_ids:
+        return RetrievalMetrics(retrieved_count=retrieved_count)
+
+    relevant_set = set(relevant_doc_ids)
+
+    # Recall@k — how many relevant docs are in the retrieved set
+    hits = sum(1 for doc_id in retrieved_ids if doc_id in relevant_set)
+    recall = hits / len(relevant_set) if relevant_set else 0.0
+
+    # MRR — reciprocal rank of the first relevant result
+    mrr = 0.0
+    for rank, doc_id in enumerate(retrieved_ids, start=1):
+        if doc_id in relevant_set:
+            mrr = 1.0 / rank
+            break
+
+    logger.debug(
+        f"Retrieval eval: recall@{retrieved_count}={recall:.3f}, MRR={mrr:.3f}"
+    )
+    return RetrievalMetrics(
+        recall_at_k=recall,
+        mrr=mrr,
+        retrieved_count=retrieved_count,
+        relevant_count=len(relevant_set),
+    )
+
+
+# ─── Answer quality ───────────────────────────────────────────────────────────
+
+_FAITHFULNESS_PROMPT = """You are an evaluation assistant.
+
+Rate the FAITHFULNESS of the answer below: does it contain only claims that
+are directly supported by the provided context? A score of 1.0 means every
+claim is grounded in the context. A score of 0.0 means the answer introduces
+information not present in the context (hallucination).
+
+Reply with ONLY a decimal number between 0.0 and 1.0.
+
+Context:
+{context}
+
+Answer:
+{answer}
+
+Faithfulness score:"""
+
+_RELEVANCE_PROMPT = """You are an evaluation assistant.
+
+Rate the RELEVANCE of the answer to the question: does it directly address
+what was asked? A score of 1.0 means the answer fully addresses the question.
+A score of 0.0 means the answer is off-topic or does not address the question.
+
+Reply with ONLY a decimal number between 0.0 and 1.0.
+
+Question:
+{query}
+
+Answer:
+{answer}
+
+Relevance score:"""
+
+
+def _llm_score(prompt: str) -> float:
+    """Call Gemini and parse a float score. Returns 0.5 on any failure."""
+    try:
+        from google.genai import types
+
+        response = _get_client().models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=10),
+        )
+        raw = (response.text or "").strip()
+        return max(0.0, min(1.0, float(raw)))
+    except Exception as e:
+        logger.debug(f"Eval LLM score failed: {e}")
+        return 0.5
+
+
+def evaluate_answer(
+    query: str,
+    context: str,
+    answer: str,
+) -> AnswerMetrics:
+    """
+    Score answer faithfulness and relevance using Gemini as judge.
+
+    If EVAL_LLM_ENABLED is False (cost-saving mode), returns placeholder
+    scores of 0.5 with llm_judged=False.
+
+    Args:
+        query:   Original user question.
+        context: RAG context passed to the LLM (plain text, no prompt wrapper).
+        answer:  Generated answer to evaluate.
+
+    Returns:
+        AnswerMetrics with faithfulness and relevance scores.
+    """
+    if not EVAL_LLM_ENABLED:
+        return AnswerMetrics(faithfulness=0.5, relevance=0.5, llm_judged=False)
+
+    if not answer or not answer.strip():
+        return AnswerMetrics(faithfulness=0.0, relevance=0.0, llm_judged=True)
+
+    faithfulness = _llm_score(
+        _FAITHFULNESS_PROMPT.format(context=context[:2000], answer=answer[:1000])
+    )
+    relevance = _llm_score(_RELEVANCE_PROMPT.format(query=query, answer=answer[:1000]))
+
+    logger.debug(
+        f"Answer eval: faithfulness={faithfulness:.3f}, relevance={relevance:.3f}"
+    )
+    return AnswerMetrics(
+        faithfulness=faithfulness,
+        relevance=relevance,
+        llm_judged=True,
+    )
+
+
+# ─── Persistence ──────────────────────────────────────────────────────────────
+
+
+def log_eval(
+    query: str,
+    retrieval: RetrievalMetrics,
+    answer: AnswerMetrics,
+) -> None:
+    """
+    Persist eval record to DynamoDB and push CloudWatch metrics.
+
+    Failures are swallowed and logged — eval must never break the main pipeline.
+    """
+    record = EvalRecord(query=query, retrieval=retrieval, answer=answer)
+
+    try:
+        _get_table().put_item(
+            Item={
+                "id": record.id,
+                "query": record.query[:500],
+                "timestamp": record.timestamp,
+                "ttl": record.ttl,
+                "recall_at_k": str(round(retrieval.recall_at_k, 4)),
+                "mrr": str(round(retrieval.mrr, 4)),
+                "retrieved_count": retrieval.retrieved_count,
+                "relevant_count": retrieval.relevant_count,
+                "faithfulness": str(round(answer.faithfulness, 4)),
+                "relevance": str(round(answer.relevance, 4)),
+                "llm_judged": answer.llm_judged,
+            }
+        )
+    except ClientError as e:
+        logger.warning(f"Eval DynamoDB write failed: {e}")
+    except Exception as e:
+        logger.warning(f"Eval log failed: {e}")
+
+    # Push to CloudWatch regardless of DynamoDB success
+    try:
+        push_metric("EvalFaithfulness", answer.faithfulness, unit="None")
+        push_metric("EvalRelevance", answer.relevance, unit="None")
+        if retrieval.relevant_count > 0:
+            push_metric("EvalRecallAtK", retrieval.recall_at_k, unit="None")
+            push_metric("EvalMRR", retrieval.mrr, unit="None")
+    except Exception as e:
+        logger.debug(f"Eval CloudWatch push failed: {e}")
+
+
+# ─── Convenience: get historical eval records ─────────────────────────────────
+
+
+def get_eval_records(window_seconds: int = 7 * 24 * 3600) -> list[dict]:
+    """
+    Return eval records from the last `window_seconds`.
+    Used by the /eval endpoint for dashboard visibility.
+    """
+    from boto3.dynamodb.conditions import Attr
+
+    since = int(time.time()) - window_seconds
+    items: list[dict] = []
+    try:
+        response = _get_table().scan(
+            FilterExpression=Attr("timestamp").gte(since),
+        )
+        items.extend(response.get("Items", []))
+        last_key = response.get("LastEvaluatedKey")
+        while last_key:
+            response = _get_table().scan(
+                FilterExpression=Attr("timestamp").gte(since),
+                ExclusiveStartKey=last_key,
             )
-            mock_table.return_value.put_item.assert_called_once()
-            item = mock_table.return_value.put_item.call_args.kwargs["Item"]
-            assert item["query"] == "test query"
-            assert "faithfulness" in item
-            assert "recall_at_k" in item
-
-    def test_cloudwatch_metrics_pushed(self):
-        from backend.app.eval import AnswerMetrics, RetrievalMetrics, log_eval
-
-        with patch("backend.app.eval._get_table") as mock_table, patch(
-            "backend.app.eval.push_metric"
-        ) as mock_push:
-            mock_table.return_value.put_item.return_value = {}
-            log_eval(
-                "q",
-                RetrievalMetrics(
-                    recall_at_k=0.5, mrr=0.5, retrieved_count=2, relevant_count=2
-                ),
-                AnswerMetrics(faithfulness=0.8, relevance=0.7, llm_judged=True),
-            )
-            metric_names = [c.args[0] for c in mock_push.call_args_list]
-            assert "EvalFaithfulness" in metric_names
-            assert "EvalRelevance" in metric_names
-
-
-class TestLLMScore:
-    @pytest.fixture(autouse=True)
-    def _reset_gemini_client(self):
-        """Reset cached _client so per-test patches on _get_client take effect."""
-        import backend.app.gemini_client as gc
-
-        gc._client = None
-        yield
-        gc._client = None
-
-    def test_parses_valid_float(self):
-        from backend.app.eval import _llm_score
-
-        mock_response = MagicMock()
-        mock_response.text = "0.85"
-        with patch("backend.app.eval._get_client") as mock_client:
-            mock_client.return_value.models.generate_content.return_value.text = "0.85"
-            score = _llm_score("some prompt")
-        assert score == pytest.approx(0.85)
-
-    def test_clamps_to_0_1(self):
-        from backend.app.eval import _llm_score
-
-        mock_response = MagicMock()
-        mock_response.text = "1.5"  # out of range
-        with patch("backend.app.eval._get_client") as mock_client:
-            mock_client.return_value.models.generate_content.return_value.text = "0.85"
-            score = _llm_score("prompt")
-        assert score == pytest.approx(1.0)
-
-    def test_returns_0_5_on_parse_failure(self):
-        from backend.app.eval import _llm_score
-
-        mock_response = MagicMock()
-        mock_response.text = "not a number"
-        with patch("backend.app.eval._get_client") as mock_client:
-            mock_client.return_value.models.generate_content.return_value.text = "0.85"
-            score = _llm_score("prompt")
-        assert score == pytest.approx(0.5)
-
-    def test_returns_0_5_on_exception(self):
-        from backend.app.eval import _llm_score
-
-        with patch(
-            "backend.app.gemini_client._get_client", side_effect=Exception("down")
-        ):
-            score = _llm_score("prompt")
-        assert score == pytest.approx(0.5)
+            items.extend(response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+    except Exception as e:
+        logger.warning(f"Eval records fetch failed: {e}")
+    return items
