@@ -195,7 +195,7 @@ class TestLLMScore:
 
         mock_response = MagicMock()
         mock_response.text = "0.85"
-        with patch("backend.app.gemini_client._get_client") as mock_client:
+        with patch("backend.app.eval._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value.text = "0.85"
             score = _llm_score("some prompt")
         assert score == pytest.approx(0.85)
@@ -205,7 +205,7 @@ class TestLLMScore:
 
         mock_response = MagicMock()
         mock_response.text = "1.5"  # out of range
-        with patch("backend.app.gemini_client._get_client") as mock_client:
+        with patch("backend.app.eval._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value.text = "0.85"
             score = _llm_score("prompt")
         assert score == pytest.approx(1.0)
@@ -215,7 +215,7 @@ class TestLLMScore:
 
         mock_response = MagicMock()
         mock_response.text = "not a number"
-        with patch("backend.app.gemini_client._get_client") as mock_client:
+        with patch("backend.app.eval._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value.text = "0.85"
             score = _llm_score("prompt")
         assert score == pytest.approx(0.5)

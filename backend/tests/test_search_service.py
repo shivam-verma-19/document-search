@@ -111,10 +111,10 @@ class TestHybridSearchWithHyDE:
         # function body via `from .query_expansion import generate_hyde_query`
         # and `from . import embeddings`, so patch their canonical module paths.
         with patch(
-            "backend.app.query_expansion.generate_hyde_query",
+            "backend.app.search_service.generate_hyde_query",
             return_value="hypothesis text",
         ) as mock_hyde, patch(
-            "backend.app.embeddings.get_embedding",
+            "backend.app.search_service.embeddings.get_embedding",
             return_value=[0.1] * 768,
         ) as mock_emb:
             hybrid_search("short question?", repository=repo)
@@ -128,9 +128,12 @@ class TestHybridSearchWithHyDE:
         repo = self._mock_repo()
 
         with patch(
-            "backend.app.query_expansion.generate_hyde_query",
+            "backend.app.search_service.generate_hyde_query",
             return_value="hypothesis",
-        ), patch("backend.app.embeddings.get_embedding", return_value=[0.1] * 768):
+        ), patch(
+            "backend.app.search_service.embeddings.get_embedding",
+            return_value=[0.1] * 768,
+        ):
             hybrid_search("What Is RAG?", repository=repo)
 
         # BM25 should receive normalized query
@@ -143,10 +146,10 @@ class TestHybridSearchWithHyDE:
         repo = self._mock_repo(bm25_docs=[_make_doc("bm25 only", "b1")])
 
         with patch(
-            "backend.app.query_expansion.generate_hyde_query",
+            "backend.app.search_service.generate_hyde_query",
             side_effect=Exception("hyde down"),
         ), patch(
-            "backend.app.embeddings.get_embedding",
+            "backend.app.search_service.embeddings.get_embedding",
             side_effect=Exception("embed down"),
         ):
             results = hybrid_search("query", repository=repo)
@@ -159,9 +162,12 @@ class TestHybridSearchWithHyDE:
         repo = self._mock_repo(vector_docs=[_make_doc("vec", "v1")])
 
         with patch(
-            "backend.app.query_expansion.generate_hyde_query",
+            "backend.app.search_service.generate_hyde_query",
             return_value="original query",
-        ), patch("backend.app.embeddings.get_embedding", return_value=[0.1] * 768):
+        ), patch(
+            "backend.app.search_service.embeddings.get_embedding",
+            return_value=[0.1] * 768,
+        ):
             results = hybrid_search("original query", repository=repo)
 
         assert len(results) > 0
@@ -180,8 +186,11 @@ class TestHybridSearchWithHyDE:
             bm25_docs=[_make_doc(f"b{i}", f"bid{i}") for i in range(10)],
         )
         with patch(
-            "backend.app.query_expansion.generate_hyde_query", return_value="q"
-        ), patch("backend.app.embeddings.get_embedding", return_value=[0.1] * 768):
+            "backend.app.search_service.generate_hyde_query", return_value="q"
+        ), patch(
+            "backend.app.search_service.embeddings.get_embedding",
+            return_value=[0.1] * 768,
+        ):
             results = hybrid_search("query", k=3, repository=repo)
         assert len(results) <= 3
 
@@ -202,8 +211,11 @@ class TestScoreThreshold:
         from backend.app.search_service import hybrid_search
 
         with patch(
-            "backend.app.query_expansion.generate_hyde_query", return_value="q"
-        ), patch("backend.app.embeddings.get_embedding", return_value=[0.1] * 768):
+            "backend.app.search_service.generate_hyde_query", return_value="q"
+        ), patch(
+            "backend.app.search_service.embeddings.get_embedding",
+            return_value=[0.1] * 768,
+        ):
             results = hybrid_search("question", repository=repo)
 
         # Only the high-score doc should be present

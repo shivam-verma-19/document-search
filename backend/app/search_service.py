@@ -4,7 +4,9 @@ import logging
 import time
 from typing import List
 
+from . import embeddings
 from .document_repository import DocumentRepository, SearchDocument, get_repository
+from .query_expansion import generate_hyde_query
 from .utils import normalize_text
 
 logger = logging.getLogger(__name__)
@@ -75,9 +77,6 @@ def hybrid_search(
 
     # ── Vector branch (HyDE-expanded) ─────────────────────────────────────────
     try:
-        from . import embeddings
-        from .query_expansion import generate_hyde_query
-
         hyde_text = generate_hyde_query(query)
         embedding = embeddings.get_embedding(hyde_text)
         vector_docs = repository.vector_search(embedding, k=k)

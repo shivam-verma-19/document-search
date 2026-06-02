@@ -152,7 +152,7 @@ class TestSemanticChunking:
 
         # Same embedding for all sentences → cosine sim = 1.0 → always merge
         with patch(
-            "backend.app.chunker.get_embedding", return_value=[1.0] + [0.0] * 15
+            "backend.app.embeddings.get_embedding", return_value=[1.0] + [0.0] * 15
         ):
             text = (
                 ". ".join([f"Sentence about topic A number {i}" for i in range(5)])
