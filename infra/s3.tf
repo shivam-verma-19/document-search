@@ -62,7 +62,7 @@ resource "aws_s3vectors_index" "rag_doc_index" {
   vector_bucket_name = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
   index_name         = "rag-doc-index"
 
-  # Must match EXPECTED_DIMENSION in s3_vectors_client.py (Gemini text-embedding-004 = 768)
+  # Must match EXPECTED_DIMENSION in s3_vectors_client.py (Gemini gemini-embedding-001 = 768)
   data_type  = "float32"
   dimension  = 768
   distance_metric = "cosine"

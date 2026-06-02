@@ -12,7 +12,7 @@ VECTOR_BUCKET_NAME = os.getenv("S3_VECTOR_BUCKET_NAME", "rag-vector-bucket")
 VECTOR_INDEX_NAME = os.getenv("S3_VECTOR_INDEX_NAME", "rag-doc-index")
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 
-# Gemini text-embedding-004 outputs 768 dimensions.
+# Gemini gemini-embedding-001 outputs 768 dimensions.
 # This MUST match the dimension configured in the S3 Vectors index (infra/s3.tf).
 EXPECTED_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "768"))
 

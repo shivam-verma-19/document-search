@@ -18,7 +18,7 @@ The platform allows users to upload documents, retrieve context-aware answers, s
 
 ### 📄 Intelligent Document Ingestion
 
-Supports PDF, DOCX, and TXT files. Pipeline includes automatic parsing, recursive chunking, metadata enrichment, embedding generation via Gemini `text-embedding-004`, and vector indexing into AWS S3 Vectors.
+Supports PDF, DOCX, and TXT files. Pipeline includes automatic parsing, recursive chunking, metadata enrichment, embedding generation via Gemini `gemini-embedding-001`, and vector indexing into AWS S3 Vectors.
 
 ### 🔍 Hybrid Search Pipeline
 
@@ -186,7 +186,7 @@ backend/
 │   ├── cache_service.py     # Semantic answer cache
 │   ├── config.py            # Pydantic settings
 │   ├── document_repository.py  # Repository abstraction
-│   ├── embeddings.py        # Gemini text-embedding-004
+│   ├── embeddings.py        # Gemini gemini-embedding-001
 │   ├── faiss_client.py      # Legacy FAISS client (kept for compatibility)
 │   ├── gemini_client.py     # Gemini LLM router
 │   ├── hybrid.py            # BM25Retriever
