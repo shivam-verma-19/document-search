@@ -41,7 +41,7 @@ class TestGenerateHydeQuery:
         mock_response = MagicMock()
         mock_response.text = "A hypothetical answer passage about the topic."
         # _get_client is imported inside generate_hyde_query from gemini_client
-        with patch("backend.app.query_expansion._get_client") as mock_client:
+        with patch("backend.app.gemini_client._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value = (
                 mock_response
             )
@@ -82,7 +82,7 @@ class TestGenerateHydeQuery:
 
         mock_response = MagicMock()
         mock_response.text = ""
-        with patch("backend.app.query_expansion._get_client") as mock_client:
+        with patch("backend.app.gemini_client._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value = (
                 mock_response
             )
@@ -113,7 +113,7 @@ class TestGenerateHydeQuery:
         mock_response.text = (
             "RAG is a technique that combines retrieval with generation."
         )
-        with patch("backend.app.query_expansion._get_client") as mock_client:
+        with patch("backend.app.gemini_client._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value = (
                 mock_response
             )
