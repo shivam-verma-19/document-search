@@ -10,6 +10,7 @@ def normalize_text(text: str) -> str:
     """
     text = text.lower().strip()
     text = re.sub(r"\s+", " ", text)
+    text = text.rstrip("?!.,;:")
     return text
 
 
@@ -22,22 +23,38 @@ def clean_text(text: str) -> str:
     return text
 
 
-def build_prompt(context: str, query: str) -> str:
+def build_prompt(context: str, query: str, sources: list[dict] | None = None) -> str:
     """
-    Standard RAG prompt template
-    """
-    return f"""
-You are an AI assistant.
+    RAG prompt with source-labeled context blocks.
 
-Answer ONLY using the context below.
-If the answer is not present, say:
-"There is no information in the context."
+    Each chunk is wrapped with a [Source N | filename | chunk idx] header
+    so the LLM can reference where each fact came from.
+    """
+    if sources:
+        # Build labeled context from SearchDocument metadata
+        labeled_blocks = []
+        for i, src in enumerate(sources, start=1):
+            filename = src.get("filename", "unknown")
+            chunk_idx = src.get("chunk_index", "?")
+            text = src.get("text", "")
+            labeled_blocks.append(
+                f"[Source {i} | {filename} | chunk {chunk_idx}]\n{text}"
+            )
+        formatted_context = "\n\n---\n\n".join(labeled_blocks)
+    else:
+        # Fallback: plain numbered blocks with separator
+        blocks = [c.strip() for c in context.split("\n") if c.strip()]
+        formatted_context = "\n\n---\n\n".join(
+            f"[Source {i}]\n{block}" for i, block in enumerate(blocks, start=1)
+        )
+
+    return f"""You are an AI assistant. Answer ONLY using the context below.
+If the answer is not in the context, say: "There is no information in the provided documents."
 
 Context:
-{context}
+{formatted_context}
 
 Question:
 {query}
 
-Answer:
-"""
+Answer:"""

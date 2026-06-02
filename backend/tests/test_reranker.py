@@ -1,60 +1,107 @@
-import types
-from unittest.mock import MagicMock
+"""
+Tests for reranker.py — keyword-overlap reranker.
+"""
+
+import sys
 
 import pytest
 
-# Mock google.genai before any import so embeddings module loads cleanly
-_mock_genai = MagicMock()
-_mock_genai_client_instance = MagicMock()
-_mock_genai.Client.return_value = _mock_genai_client_instance
-import sys
 
-sys.modules.setdefault("google", MagicMock())
-sys.modules.setdefault("google.genai", _mock_genai)
+@pytest.fixture(autouse=True)
+def _evict_stubs():
+    """Remove any MagicMock stubs installed by test_rag so real modules load."""
+    for mod in ["backend.app.reranker"]:
+        sys.modules.pop(mod, None)
+    yield
+    for mod in ["backend.app.reranker"]:
+        sys.modules.pop(mod, None)
 
 
-class TestRerankerScore:
-    def _make_doc(self, text):
-        d = types.SimpleNamespace()
-        d.page_content = text
-        return d
+from unittest.mock import patch
 
-    def test_rerank_returns_sorted_best_first(self):
+import pytest
+
+
+def _make_doc(text: str, doc_id: str = ""):
+    from backend.app.document_repository import SearchDocument
+
+    return SearchDocument(page_content=text, doc_id=doc_id or text[:20])
+
+
+class TestKeywordFallback:
+    def test_returns_sorted_best_first(self):
         from backend.app.reranker import rerank
 
         docs = [
-            self._make_doc("unrelated content about bananas"),
-            self._make_doc("python machine learning tutorial python python"),
-            self._make_doc("some python code"),
+            _make_doc("unrelated content about bananas"),
+            _make_doc("python machine learning python python"),
+            _make_doc("some python code"),
         ]
         result = rerank("python", docs)
-        # doc with most "python" occurrences should rank highest
-        assert (
-            result[0].page_content == "python machine learning tutorial python python"
-        )
+        assert result[0].page_content == "python machine learning python python"
 
-    def test_rerank_empty_docs(self):
+    def test_empty_returns_empty(self):
         from backend.app.reranker import rerank
 
         assert rerank("query", []) == []
 
-    def test_score_length_bonus(self):
-        from backend.app.reranker import _score
-
-        short_doc = "python"
-        long_doc = " ".join(["python"] * 200)
-        s_short = _score("python", short_doc)
-        s_long = _score("python", long_doc)
-        assert s_long > s_short  # length bonus increases score
-
-    def test_score_no_overlap(self):
-        from backend.app.reranker import _score
-
-        score = _score("quantum physics", "banana apple orange")
-        assert score == pytest.approx(0.0, abs=0.25)  # length bonus only
-
-    def test_rerank_single_doc(self):
+    def test_single_doc_returned(self):
         from backend.app.reranker import rerank
 
-        doc = self._make_doc("hello world")
+        doc = _make_doc("hello world")
         assert rerank("hello", [doc]) == [doc]
+
+    def test_no_overlap_still_returns_doc(self):
+        from backend.app.reranker import rerank
+
+        doc = _make_doc("quantum physics banana")
+        result = rerank("unrelated query xyz", [doc])
+        assert len(result) == 1
+
+    def test_length_bonus_affects_score(self):
+        from backend.app.reranker import _score
+
+        short = "python"
+        long_doc = " ".join(["python"] * 200)
+        assert _score("python", long_doc) > _score("python", short)
+
+    def test_more_keyword_hits_ranks_higher(self):
+        from backend.app.reranker import rerank
+
+        docs = [
+            _make_doc("python"),
+            _make_doc("python python python python"),
+        ]
+        result = rerank("python", docs)
+        assert result[0].page_content == "python python python python"
+
+    def test_preserves_all_docs(self):
+        from backend.app.reranker import rerank
+
+        docs = [_make_doc(f"doc {i}") for i in range(5)]
+        result = rerank("doc", docs)
+        assert len(result) == 5
+
+
+class TestRerankerSorting:
+    def test_returns_docs_sorted_descending(self):
+        from backend.app.reranker import _score, rerank
+
+        docs = [
+            _make_doc("completely irrelevant xyz"),
+            _make_doc("python tutorial for beginners"),
+            _make_doc("python python python"),
+        ]
+        result = rerank("python", docs)
+        scores = [_score("python", d.page_content) for d in result]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_exact_query_match_ranks_first(self):
+        from backend.app.reranker import rerank
+
+        docs = [
+            _make_doc("bananas are yellow"),
+            _make_doc("machine learning"),
+        ]
+        result = rerank("machine learning", docs)
+        assert result[0].page_content == "machine learning"

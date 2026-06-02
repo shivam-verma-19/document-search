@@ -26,16 +26,13 @@ class TestGetCorpus:
         _reset()
         mock_table = MagicMock()
         mock_table.get_item.return_value = {
-            "Item": {
-                "pk": "bm25_corpus",
-                "texts": json.dumps(["a", "b"]),
-                "version": 3,
-            }
+            "Item": {"pk": "bm25_corpus", "texts": json.dumps(["a", "b"]), "version": 3}
         }
         with patch("backend.app.bm25_cache._table", return_value=mock_table) as mock_fn:
             mock_fn.return_value = mock_table
-        with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
-            result = m.get_corpus()
+            # _table is called as a function, so patch the function itself
+            with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
+                result = m.get_corpus()
         assert result == ["a", "b"]
         assert m._warm_version == 3
 

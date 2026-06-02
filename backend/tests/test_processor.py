@@ -153,3 +153,64 @@ class TestProcessFileFromS3:
         ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
             result = proc.process_file_from_s3("bucket", "user/missing.txt")
         assert result["status"] == "error"
+
+
+class TestChunkMetadataPropagation:
+    """Verify filename and chunk_index are stored in S3 Vectors metadata."""
+
+    def test_filename_stored_in_index_metadata(self):
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = None
+        mock_s3_client = MagicMock()
+        mock_s3_client.get_object.return_value = {
+            "Body": BytesIO(b"some text content to chunk and index")
+        }
+        mock_s3v.index_document.reset_mock()
+
+        with patch.object(
+            proc, "get_idempotency_table", return_value=mock_t
+        ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
+            proc.process_file_from_s3("bucket", "user/report.pdf")
+
+        # Every index_document call must carry filename in metadata
+        for call_kwargs in [c.kwargs for c in mock_s3v.index_document.call_args_list]:
+            assert call_kwargs["metadata"]["filename"] == "report.pdf"
+
+    def test_chunk_index_increments_across_chunks(self):
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = None
+        mock_s3_client = MagicMock()
+        # Enough text to produce multiple chunks
+        mock_s3_client.get_object.return_value = {"Body": BytesIO(b"word " * 1000)}
+        mock_s3v.index_document.reset_mock()
+
+        with patch.object(
+            proc, "get_idempotency_table", return_value=mock_t
+        ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
+            result = proc.process_file_from_s3("bucket", "user/long.txt")
+
+        assert result["chunks"] > 1
+        chunk_indices = [
+            c.kwargs["metadata"]["chunk_index"]
+            for c in mock_s3v.index_document.call_args_list
+        ]
+        assert sorted(chunk_indices) == list(range(len(chunk_indices)))
+
+    def test_doc_base_id_consistent_across_chunks(self):
+        mock_t = MagicMock()
+        mock_t.put_item.side_effect = None
+        mock_s3_client = MagicMock()
+        mock_s3_client.get_object.return_value = {"Body": BytesIO(b"word " * 1000)}
+        mock_s3v.index_document.reset_mock()
+
+        with patch.object(
+            proc, "get_idempotency_table", return_value=mock_t
+        ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
+            result = proc.process_file_from_s3("bucket", "user/long.txt")
+
+        base_ids = {
+            c.kwargs["metadata"]["doc_base_id"]
+            for c in mock_s3v.index_document.call_args_list
+        }
+        assert len(base_ids) == 1  # all chunks share one doc_base_id
+        assert result["doc_id"] in base_ids

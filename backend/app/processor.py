@@ -71,8 +71,6 @@ def claim_processing(key: str) -> bool:
         error_code = e.response.get("Error", {}).get("Code")
         if error_code == "ConditionalCheckFailedException":
             return False
-        # FIX: log and return False instead of re-raising, so the Lambda
-        # returns a structured error result rather than crashing into DLQ.
         logger.warning(f"Failed to claim idempotency row for {key}: {e}")
         return False
 
@@ -122,26 +120,37 @@ def _download_from_s3(bucket: str, key: str) -> bytes:
 
 def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[str]]:
     """Return (chunks, doc_base_id, chunk_texts)."""
-    chunks = [Document(page_content=c) for c in chunk_text(text)]
+    filename = key.split("/")[-1]
     doc_base_id = str(uuid.uuid4())
-    new_texts: list[str] = []
 
-    for idx, chunk in enumerate(chunks):
-        chunk_doc_id = f"{doc_base_id}#{idx}"
-        embedding = get_embedding(chunk.page_content)
+    source_metadata = {
+        "filename": filename,
+        "s3_key": key,
+        "doc_base_id": doc_base_id,
+    }
+    chunks = chunk_text(text, source_metadata=source_metadata)
+    new_texts: list[str] = []
+    langchain_docs: list[Document] = []
+
+    for chunk in chunks:
+        chunk_doc_id = f"{doc_base_id}#{chunk.metadata['chunk_index']}"
+        embedding = get_embedding(chunk.text)
         index_document(
             doc_id=chunk_doc_id,
-            text=chunk.page_content,
+            text=chunk.text,
             embedding=embedding,
             metadata={
                 "user_id": key.split("/")[0],
-                "chunk_id": idx,
+                "chunk_index": chunk.metadata["chunk_index"],
                 "doc_base_id": doc_base_id,
+                "filename": filename,
+                "s3_key": key,
             },
         )
-        new_texts.append(chunk.page_content)
+        new_texts.append(chunk.text)
+        langchain_docs.append(Document(page_content=chunk.text))
 
-    return chunks, doc_base_id, new_texts
+    return langchain_docs, doc_base_id, new_texts
 
 
 # ─── Main processor (called by SQS worker Lambda) ────────────────────────────

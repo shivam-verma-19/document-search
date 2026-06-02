@@ -4,7 +4,7 @@ import os
 import sys
 
 from fastapi import Depends, FastAPI, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from mangum import Mangum
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -25,7 +25,7 @@ from .auth import optional_auth, verify_cognito_token, verify_token
 from .config import get_settings
 from .errors import ErrorResponse, RAGException
 from .metrics import get_metrics
-from .rag import ask_question, summarize_doc
+from .rag import ask_question, ask_question_stream, summarize_doc
 
 settings = get_settings()
 app = FastAPI()
@@ -130,6 +130,40 @@ def ask(
     return {"answer": answer}
 
 
+@limiter.limit("10/minute")
+@app.get("/ask/stream")
+async def ask_stream(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=500),
+    user: dict = Depends(verify_cognito_token),
+):
+    """
+    Streaming ask — returns tokens via Server-Sent Events as they arrive.
+
+    Client reads the stream until it receives "data: [DONE]".
+
+    Example (JavaScript):
+        const es = new EventSource('/ask/stream?q=your+question');
+        es.onmessage = (e) => {
+          if (e.data === '[DONE]') { es.close(); return; }
+          output.textContent += e.data.replace(/\\\\n/g, '\\n');
+        };
+    """
+
+    def _generate():
+        for chunk in ask_question_stream(q):
+            yield chunk
+
+    return StreamingResponse(
+        asyncio.to_thread(_generate) if False else _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable nginx buffering
+        },
+    )
+
+
 @limiter.limit("20/minute")
 @app.get("/summary")
 def summary(
@@ -161,6 +195,24 @@ def delete_document(
 @app.get("/metrics")
 def metrics(request: Request, user: dict = Depends(verify_cognito_token)):
     return get_metrics()
+
+
+@limiter.limit("10/minute")
+@app.get("/eval")
+def eval_records(
+    request: Request,
+    window_hours: int = Query(default=24, ge=1, le=720),
+    user: dict = Depends(verify_cognito_token),
+):
+    """
+    Return eval records (faithfulness, relevance, recall@k, MRR) for the
+    last `window_hours` hours. Used for dashboard visibility and regression
+    detection.
+    """
+    from .eval import get_eval_records
+
+    records = get_eval_records(window_seconds=window_hours * 3600)
+    return {"records": records, "count": len(records), "window_hours": window_hours}
 
 
 # ─── Lambda handler ───────────────────────────────────────────────────────────

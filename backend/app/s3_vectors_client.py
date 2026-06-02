@@ -14,7 +14,6 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 
 # Gemini text-embedding-004 outputs 768 dimensions.
 # This MUST match the dimension configured in the S3 Vectors index (infra/s3.tf).
-# If you change the embedding model, update both this constant AND the Terraform resource.
 EXPECTED_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "768"))
 
 _client = None
@@ -27,7 +26,7 @@ def _get_client():
     return _client
 
 
-# ─── Public API (same as faiss_client.py) ────────────────────────────────────
+# ─── Public API ───────────────────────────────────────────────────────────────
 
 
 def index_document(doc_id, text, embedding=None, metadata=None):
@@ -58,8 +57,21 @@ def index_document(doc_id, text, embedding=None, metadata=None):
     return {"result": "created", "_id": str(doc_id)}
 
 
-def search_documents(query_embedding, k=5):
-    """Return top-k documents as dicts with _id and _source."""
+def search_documents(query_embedding, k=5, score_threshold: float = 0.0) -> list[dict]:
+    """
+    Return top-k documents as dicts with _id, _source, and similarity score.
+
+    Args:
+        query_embedding: Query vector.
+        k: Number of results to fetch from S3 Vectors.
+        score_threshold: Minimum similarity score to include a result (0.0 = no filter).
+                         Typical cosine similarity: 0.0 (orthogonal) to 1.0 (identical).
+                         A threshold of 0.5 filters out weakly related chunks.
+
+    Returns:
+        List of dicts: {_id, _source: {text, metadata}, score}
+        Ordered best-first, filtered by score_threshold.
+    """
     response = _get_client().query_vectors(
         VectorBucketName=VECTOR_BUCKET_NAME,
         IndexName=VECTOR_INDEX_NAME,
@@ -70,6 +82,15 @@ def search_documents(query_embedding, k=5):
     docs = []
     for item in response.get("Vectors", []):
         meta = item.get("Metadata", {})
+        # S3 Vectors returns Score in the query response
+        score = float(item.get("Score", 1.0))
+
+        if score < score_threshold:
+            logger.debug(
+                f"Filtered chunk {item.get('Key')} — score {score:.3f} < threshold {score_threshold:.3f}"
+            )
+            continue
+
         docs.append(
             {
                 "_id": item["Key"],
@@ -77,13 +98,14 @@ def search_documents(query_embedding, k=5):
                     "text": meta.get("text", ""),
                     "metadata": {k: v for k, v in meta.items() if k != "text"},
                 },
+                "score": score,
             }
         )
     return docs
 
 
-def search_similar(query_embedding, k=5):
-    """Return top-k chunk texts (for vector branch of hybrid search)."""
+def search_similar(query_embedding, k=5) -> list[str]:
+    """Return top-k chunk texts (for backward compatibility)."""
     docs = search_documents(query_embedding, k)
     return [d["_source"]["text"] for d in docs]
 

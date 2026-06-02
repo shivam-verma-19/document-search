@@ -6,7 +6,7 @@ A production-ready **Retrieval-Augmented Generation (RAG)** platform built with 
 - AWS Lambda
 - S3 Vectors (vector store)
 - Google Gemini (LLM + embeddings)
-- Hybrid Search (vector + BM25)
+- Hybrid Search (vector + BM25 + RRF fusion)
 - Cross-Encoder Reranking
 - Semantic Caching
 
@@ -44,6 +44,33 @@ Generate full summaries or per-chunk overviews by doc ID or chunk key, with grac
 
 ---
 
+## 🗺️ Planned Enhancements
+
+The following improvements are on the roadmap to bring this system to full Hybrid RAG maturity:
+
+### 🔢 Adaptive Chunking
+Replace fixed-size recursive splitting with semantic chunking (e.g., `semantic-chunker` via LangChain) that splits on topic boundaries. This significantly improves retrieval precision because each chunk stays semantically coherent.
+
+### 🏷️ Metadata-Aware Filtering
+Attach structured metadata (file type, upload date, user ID, section headers) to each chunk and expose filter parameters in the search API. Enables scoped queries like "only search documents from last 30 days".
+
+### 🔁 Multi-Step Query Decomposition
+Introduce a query planning step that breaks complex questions into sub-queries, retrieves context for each, then synthesises a combined answer. Addresses multi-hop reasoning gaps in the current single-pass retrieval.
+
+### 📊 RAGAS-Based Evaluation
+Replace the basic latency/precision DynamoDB store with a proper RAGAS evaluation harness tracking: Faithfulness, Answer Relevancy, Context Precision, and Context Recall. Wire these metrics into CloudWatch dashboards.
+
+### 🔄 Conversation Memory
+Add a short-term conversation buffer so follow-up questions can reference prior turns without repeating context in the prompt. A DynamoDB session table keyed by `user_id + session_id` is the minimal implementation.
+
+### 🏗️ True Cross-Encoder Reranking
+Swap the current keyword-overlap scorer in `reranker.py` for a real cross-encoder model (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2` via SentenceTransformers or a Bedrock-hosted model). The current scorer does not model semantic relationships between query and document.
+
+### 🌐 HyDE (Hypothetical Document Embeddings)
+Before embedding the raw user query, use Gemini to generate a hypothetical ideal answer, embed that instead, and use it for vector search. Consistently improves recall for sparse or ambiguous queries with minimal added latency.
+
+---
+
 ## ☁️ AWS Serverless Architecture
 
 ```text
@@ -56,6 +83,8 @@ Lambda (FastAPI RAG API)
 Hybrid Retrieval
 ├── S3 Vectors (Semantic Search)
 └── BM25 (DynamoDB warm cache)
+↓
+RRF Fusion
 ↓
 Cross-Encoder Reranker
 ↓
@@ -87,7 +116,7 @@ Worker Lambda (processor.py)
 
 Current coverage: **≥ 90%** across all application modules.
 
-```
+```bash
 pytest backend/tests/ --cov=backend --cov-report=term-missing
 ```
 
@@ -167,10 +196,10 @@ backend/
 │   ├── monitoring.py        # CloudWatch push_metric
 │   ├── processor.py         # SQS worker: extract + embed + index
 │   ├── rag.py               # ask_question + summarize_doc pipeline
-│   ├── reranker.py          # Cross-encoder reranker
+│   ├── reranker.py          # Cross-encoder reranker (keyword-overlap scorer)
 │   ├── retry.py             # Exponential backoff
 │   ├── s3_vectors_client.py # AWS S3 Vectors CRUD
-│   ├── search_service.py    # hybrid_search + rerank_documents
+│   ├── search_service.py    # hybrid_search + rerank_documents (RRF fusion)
 │   ├── secrets.py           # AWS Secrets Manager
 │   └── worker_lambda.py     # SQS Lambda handler
 └── tests/

@@ -9,6 +9,7 @@ from .monitoring import emit_confidence_metric
 from .retry import retry_with_backoff
 from .s3_vectors_client import get_document, get_documents_by_doc_base_id
 from .search_service import hybrid_search, rerank_documents
+from .utils import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,54 @@ def invoke_llm_with_retry(
         return None
 
 
+# ─── Prompt builder ───────────────────────────────────────────────────────────
+
+
+def _build_rag_prompt(docs: list, query: str) -> tuple[str, str]:
+    from . import utils
+
+    sources = []
+    plain_parts = []
+    for doc in docs:
+        meta = getattr(doc, "metadata", {}) or {}
+        sources.append(
+            {
+                "filename": meta.get("filename", "unknown"),
+                "chunk_index": meta.get("chunk_index", "?"),
+                "text": doc.page_content,
+            }
+        )
+        plain_parts.append(doc.page_content)
+
+    context_plain = "\n".join(plain_parts)
+    prompt = utils.build_prompt(context_plain, query, sources=sources)
+    return prompt, context_plain
+
+
+# ─── Background eval helper ───────────────────────────────────────────────────
+
+
+def _run_eval_async(query: str, context: str, answer: str, docs: list) -> None:
+    """
+    Fire-and-forget eval after a successful RAG answer.
+    Runs in a thread so it never delays the response to the user.
+    Swallows all exceptions — eval must never affect the main pipeline.
+    """
+    import threading
+
+    def _eval():
+        try:
+            from .eval import evaluate_answer, evaluate_retrieval, log_eval
+
+            retrieval_metrics = evaluate_retrieval(query, docs)
+            answer_metrics = evaluate_answer(query, context, answer)
+            log_eval(query, retrieval_metrics, answer_metrics)
+        except Exception as e:
+            logger.debug(f"Background eval failed (non-fatal): {e}")
+
+    threading.Thread(target=_eval, daemon=True).start()
+
+
 # ─── Main pipeline ────────────────────────────────────────────────────────────
 
 
@@ -125,7 +174,8 @@ def ask_question(query: str) -> str:
 
     logger.info(f"Processing query: {query[:50]}...")
 
-    cached = get_cached_answer(query)
+    cache_key = normalize_text(query)
+    cached = get_cached_answer(cache_key)
     if cached:
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Cache hit, returned in {elapsed_ms:.0f}ms")
@@ -137,15 +187,17 @@ def ask_question(query: str) -> str:
     if docs:
         docs = rerank_documents(query, docs)
 
-    if docs and len(docs) >= MIN_DOCS_FOR_RAG:
-        context = "\n".join(d.page_content for d in docs if d.page_content)
-        prompt = utils.build_prompt(context, query)
+    if docs:
+        prompt, context_plain = _build_rag_prompt(docs, query)
         result = invoke_llm_with_retry(
-            prompt=prompt, query=query, context=context, max_retries=LLM_MAX_RETRIES
+            prompt=prompt,
+            query=query,
+            context=context_plain,
+            max_retries=LLM_MAX_RETRIES,
         )
         if result and result.get("answer"):
             answer = result["answer"]
-            set_cached_answer(query, answer)
+            set_cached_answer(cache_key, answer)
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(f"RAG response generated in {elapsed_ms:.0f}ms")
             confidence = min(1.0, doc_count / RAG_TOP_K)
@@ -156,11 +208,10 @@ def ask_question(query: str) -> str:
                 metrics.log_metrics(query, elapsed_ms, "rag")
             except Exception as e:
                 logger.warning(f"Metrics logging failed: {e}")
+            _run_eval_async(query, context_plain, answer, docs)
             return answer
 
-    logger.info(
-        f"Falling back to LLM-only (found {len(docs)} docs, need >= {MIN_DOCS_FOR_RAG})"
-    )
+    logger.info(f"Falling back to LLM-only (found {len(docs)} docs)")
     prompt = f"{TERSE_SYSTEM}\n\n{query}"
     result = invoke_llm_with_retry(
         prompt=prompt, query=query, context="", max_retries=LLM_MAX_RETRIES
@@ -170,7 +221,7 @@ def ask_question(query: str) -> str:
         if result and result.get("answer"):
             answer = f"I couldn't find relevant documents. Based on my knowledge:\n\n{result['answer']}"
             if not result["answer"].startswith("Error:"):
-                set_cached_answer(query, answer)
+                set_cached_answer(cache_key, answer)
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
         emit_confidence_metric(0.5, escalated=False, path="fallback", source="llm")
@@ -178,6 +229,7 @@ def ask_question(query: str) -> str:
             metrics.log_metrics(query, elapsed_ms, "llm")
         except Exception as e:
             logger.warning(f"Metrics logging failed: {e}")
+        _run_eval_async(query, "", answer, [])
         return answer
 
     logger.error(
@@ -185,6 +237,114 @@ def ask_question(query: str) -> str:
     )
     emit_confidence_metric(0.0, escalated=True, path="error")
     return "I'm having trouble generating an answer right now. Please try again in a moment."
+
+
+# ─── Streaming pipeline ───────────────────────────────────────────────────────
+
+
+def ask_question_stream(query: str):
+    """
+    Generator version of ask_question for SSE streaming.
+
+    Yields string tokens as they arrive from Gemini so the user sees
+    output immediately instead of waiting for the full response.
+
+    Usage (FastAPI):
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(ask_question_stream(q), media_type="text/event-stream")
+
+    Each yielded value is an SSE-formatted string: "data: <token>\\n\\n"
+    A final "data: [DONE]\\n\\n" signals completion.
+    """
+    from google.genai import types
+
+    from . import metrics
+    from .gemini_client import GEMINI_MODEL, _get_client, classify_complexity
+
+    start_time = time.time()
+
+    if not query or not query.strip():
+        yield "data: Please provide a question.\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    query = query.strip()
+
+    if _is_forbidden(query):
+        yield "data: This query is not allowed.\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    cache_key = normalize_text(query)
+    cached = get_cached_answer(cache_key)
+    if cached:
+        # Stream cached answer token-by-token for consistent UX
+        for word in cached.split(" "):
+            yield f"data: {word} \n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    docs = hybrid_search(query, k=RAG_TOP_K)
+    if docs:
+        docs = rerank_documents(query, docs)
+
+    if docs:
+        _, context_plain = _build_rag_prompt(docs, query)
+        from . import utils
+
+        sources = [
+            {
+                "filename": (getattr(d, "metadata", {}) or {}).get(
+                    "filename", "unknown"
+                ),
+                "chunk_index": (getattr(d, "metadata", {}) or {}).get(
+                    "chunk_index", "?"
+                ),
+                "text": d.page_content,
+            }
+            for d in docs
+        ]
+        prompt = utils.build_prompt(context_plain, query, sources=sources)
+    else:
+        context_plain = ""
+        prompt = f"{TERSE_SYSTEM}\n\n{query}"
+
+    clf = classify_complexity(query, context_plain)
+    max_tokens = 2048 if clf.complexity == "complex" else 1024
+
+    full_answer_parts: list[str] = []
+    try:
+        stream = _get_client().models.generate_content_stream(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=max_tokens),
+        )
+        for chunk in stream:
+            token = getattr(chunk, "text", "") or ""
+            if token:
+                full_answer_parts.append(token)
+                # Escape newlines for SSE transport
+                safe_token = token.replace("\n", "\\n")
+                yield f"data: {safe_token}\n\n"
+
+    except Exception as e:
+        logger.error(f"Streaming generation failed: {e}", exc_info=True)
+        yield f"data: I'm having trouble generating an answer right now.\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    yield "data: [DONE]\n\n"
+
+    full_answer = "".join(full_answer_parts)
+    if full_answer:
+        set_cached_answer(cache_key, full_answer)
+        elapsed_ms = (time.time() - start_time) * 1000
+        source_label = "rag" if docs else "llm"
+        try:
+            metrics.log_metrics(query, elapsed_ms, f"{source_label}_stream")
+        except Exception:
+            pass
+        _run_eval_async(query, context_plain, full_answer, docs)
 
 
 # ─── Summarize ────────────────────────────────────────────────────────────────

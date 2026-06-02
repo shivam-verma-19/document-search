@@ -1,8 +1,4 @@
-"""Search service using hybrid RRF fusion with injected document repository.
-
-Provides high-level search operations combining vector similarity and
-keyword matching, with dependency injection for testability.
-"""
+"""Search service: HyDE query expansion → hybrid RRF fusion → reranking."""
 
 import logging
 import time
@@ -23,25 +19,29 @@ def _reciprocal_rank_fusion(
     k: int = 5,
     rrf_k: int = 60,
 ) -> List[SearchDocument]:
-    """Combine two ranked lists using Reciprocal Rank Fusion.
-
-    RRF gives equal weight to both rankers and handles missing documents.
+    """
+    Combine two ranked lists using Reciprocal Rank Fusion.
+    Deduplication keys on doc_id (not page_content) so identical text from
+    different logical documents is preserved.
     """
     scores: dict[str, float] = {}
     doc_map: dict[str, SearchDocument] = {}
+
     for rank, doc in enumerate(list1, start=1):
-        key = doc.page_content
+        key = doc.doc_id if doc.doc_id else doc.page_content
         scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
         doc_map[key] = doc
+
     for rank, doc in enumerate(list2, start=1):
-        key = doc.page_content
+        key = doc.doc_id if doc.doc_id else doc.page_content
         scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
         doc_map[key] = doc
+
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [doc_map[key] for key, _ in ranked[:k]]
 
 
-# ─── Hybrid search ────────────────────────────────────────────────────────────
+# ─── Hybrid search with HyDE ──────────────────────────────────────────────────
 
 
 def hybrid_search(
@@ -49,17 +49,16 @@ def hybrid_search(
     k: int = 5,
     repository: DocumentRepository | None = None,
 ) -> List[SearchDocument]:
-    """Search documents combining vector similarity and keyword matching.
+    """
+    Full retrieval pipeline:
+      1. Normalize query.
+      2. HyDE expansion — generate hypothetical answer, embed that instead
+         of the raw question. Falls back to original query if LLM fails.
+      3. Vector search using HyDE embedding.
+      4. BM25 keyword search using normalized original query.
+      5. RRF fusion of both result lists.
 
-    Args:
-        query: User search query
-        k: Number of results to return
-        repository: DocumentRepository instance (uses default if None)
-
-    Returns:
-        List of SearchDocument results ranked by RRF
-
-    Gracefully degrades if either branch fails (vector OR keyword search).
+    Gracefully degrades if either branch fails.
     """
     if not query or not query.strip():
         logger.warning("Empty query provided to hybrid_search")
@@ -68,25 +67,30 @@ def hybrid_search(
     if repository is None:
         repository = get_repository()
 
-    # Normalize query for better semantic matching
     normalized_query = normalize_text(query)
-
     start_time = time.time()
+
     vector_docs: List[SearchDocument] = []
     bm25_docs: List[SearchDocument] = []
 
-    # Vector branch
+    # ── Vector branch (HyDE-expanded) ─────────────────────────────────────────
     try:
         from . import embeddings
+        from .query_expansion import generate_hyde_query
 
-        embedding = embeddings.get_embedding(normalized_query)
+        hyde_text = generate_hyde_query(query)
+        embedding = embeddings.get_embedding(hyde_text)
         vector_docs = repository.vector_search(embedding, k=k)
+        logger.debug(
+            f"Vector branch: {len(vector_docs)} docs (HyDE={'yes' if hyde_text != query else 'no'})"
+        )
     except Exception as e:
         logger.warning(f"Vector search failed (continuing with keyword only): {e}")
 
-    # BM25 branch — corpus from cache, NOT from paginating S3 Vectors
+    # ── BM25 branch (original normalized query) ────────────────────────────────
     try:
         bm25_docs = repository.keyword_search(normalized_query, k=k)
+        logger.debug(f"BM25 branch: {len(bm25_docs)} docs")
     except Exception as e:
         logger.warning(f"BM25 search failed (continuing with vector only): {e}")
 
@@ -102,15 +106,7 @@ def hybrid_search(
 
 
 def rerank_documents(query: str, docs: List[SearchDocument]) -> List[SearchDocument]:
-    """Re-rank documents using cross-encoder for better relevance.
-
-    Args:
-        query: User search query
-        docs: Documents to rerank
-
-    Returns:
-        Reranked documents (same list if reranking fails)
-    """
+    """Re-rank documents using Gemini cross-encoder for semantic relevance."""
     from . import reranker
 
     if not docs:
