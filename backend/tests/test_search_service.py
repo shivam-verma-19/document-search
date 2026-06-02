@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _evict_stubs():
     """Remove any MagicMock stubs installed by test_rag so real modules load."""
     for mod in [

@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _evict_stubs():
     """Remove any MagicMock stubs installed by test_rag so real modules load."""
     for mod in ["backend.app.rag", "backend.app.reranker", "backend.app.gemini_client"]:
@@ -103,12 +103,13 @@ class TestAskQuestionStream:
         assert chunks[-1] == "data: [DONE]\n\n"
 
     def test_gemini_failure_yields_error_and_done(self, monkeypatch):
-        import backend.app.cache as cache_mod
+        import backend.app.gemini_client as gc
         import backend.app.metrics as metrics_mod
         import backend.app.rag as rag_mod
 
-        monkeypatch.setattr(cache_mod, "get_cache", lambda q: None)
-        monkeypatch.setattr(cache_mod, "set_cache", lambda q, a: None)
+        gc._client = None
+        monkeypatch.setattr(rag_mod, "get_cached_answer", lambda q: None)
+        monkeypatch.setattr(rag_mod, "set_cached_answer", lambda q, a: None)
         monkeypatch.setattr(metrics_mod, "log_metrics", lambda *a, **k: None)
         monkeypatch.setattr(rag_mod, "hybrid_search", lambda q, **kw: [])
         monkeypatch.setattr(rag_mod, "_run_eval_async", lambda *a, **k: None)

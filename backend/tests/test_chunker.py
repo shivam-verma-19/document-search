@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _evict_stubs():
     """Remove any MagicMock stubs installed by test_rag so real modules load."""
     for mod in ["backend.app.chunker", "backend.app.embeddings"]:
@@ -152,7 +152,7 @@ class TestSemanticChunking:
 
         # Same embedding for all sentences → cosine sim = 1.0 → always merge
         with patch(
-            "backend.app.embeddings.get_embedding", return_value=[1.0] + [0.0] * 15
+            "backend.app.chunker.get_embedding", return_value=[1.0] + [0.0] * 15
         ):
             text = (
                 ". ".join([f"Sentence about topic A number {i}" for i in range(5)])

@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _evict_stubs():
     """Remove any MagicMock stubs installed by test_rag so real modules load."""
     for mod in ["backend.app.eval"]:
@@ -181,12 +181,20 @@ class TestLogEval:
 
 
 class TestLLMScore:
+    @pytest.fixture(autouse=True)
+    def _reset_gemini_client(self):
+        """Reset cached _client so per-test patches on _get_client take effect."""
+        import backend.app.gemini_client as gc
+
+        gc._client = None
+        yield
+        gc._client = None
+
     def test_parses_valid_float(self):
         from backend.app.eval import _llm_score
 
         mock_response = MagicMock()
         mock_response.text = "0.85"
-        # _get_client is imported inside _llm_score from gemini_client
         with patch("backend.app.gemini_client._get_client") as mock_client:
             mock_client.return_value.models.generate_content.return_value = (
                 mock_response

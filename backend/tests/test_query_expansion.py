@@ -6,7 +6,7 @@ import sys
 import pytest
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def _evict_stubs():
     """Remove any MagicMock stubs installed by test_rag so real modules load."""
     for mod in ["backend.app.query_expansion"]:
@@ -22,6 +22,15 @@ import pytest
 
 
 class TestGenerateHydeQuery:
+    @pytest.fixture(autouse=True)
+    def _reset_gemini_client(self):
+        """Reset cached _client so per-test patches on _get_client take effect."""
+        import backend.app.gemini_client as gc
+
+        gc._client = None
+        yield
+        gc._client = None
+
     def test_returns_hypothesis_on_success(self, monkeypatch):
         monkeypatch.setenv("HYDE_ENABLED", "true")
         import backend.app.query_expansion as qe
