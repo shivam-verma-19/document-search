@@ -329,7 +329,7 @@ def ask_question_stream(query: str):
 
     except Exception as e:
         logger.error(f"Streaming generation failed: {e}", exc_info=True)
-        yield f"data: I'm having trouble generating an answer right now.\n\n"
+        yield "data: I'm having trouble generating an answer right now.\n\n"
         yield "data: [DONE]\n\n"
         return
 

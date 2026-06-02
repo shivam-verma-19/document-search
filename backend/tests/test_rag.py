@@ -229,7 +229,7 @@ class TestPipelineRouting:
 
         spy = MagicMock(return_value=_router_result(answer="rag"))
         monkeypatch.setattr(gemini_router, "route_and_invoke", spy)
-        result = rag.ask_question("question")
+        rag.ask_question("question")
         # With 1 doc, context is provided (RAG path is taken)
         context_arg = spy.call_args.kwargs.get("context", "")
         assert context_arg != ""  # context was provided → RAG path
@@ -238,7 +238,7 @@ class TestPipelineRouting:
         search_calls = []
         rag = _load_rag(monkeypatch, cache_hit="cached")
         monkeypatch.setattr(
-            rag_mod := rag,
+            rag,
             "hybrid_search",
             lambda *a, **k: search_calls.append(1) or [],
         )
