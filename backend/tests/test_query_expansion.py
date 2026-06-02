@@ -1,10 +1,9 @@
 """Tests for query_expansion.py — HyDE (Hypothetical Document Embeddings)."""
 
+import importlib
 import sys
 
 import pytest
-
-import importlib
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +26,7 @@ class TestGenerateHydeQuery:
         monkeypatch.setenv("HYDE_ENABLED", "true")
         import backend.app.query_expansion as qe
 
+        importlib.reload(qe)
         monkeypatch.setattr(qe, "HYDE_ENABLED", True)
 
         mock_response = MagicMock()
@@ -42,6 +42,7 @@ class TestGenerateHydeQuery:
 
     def test_returns_original_query_when_disabled(self, monkeypatch):
         import backend.app.query_expansion as qe
+
         importlib.reload(qe)
 
         monkeypatch.setattr(qe, "HYDE_ENABLED", False)
@@ -51,6 +52,7 @@ class TestGenerateHydeQuery:
 
     def test_returns_original_query_on_llm_failure(self, monkeypatch):
         import backend.app.query_expansion as qe
+
         importlib.reload(qe)
 
         monkeypatch.setattr(qe, "HYDE_ENABLED", True)
@@ -64,6 +66,7 @@ class TestGenerateHydeQuery:
 
     def test_returns_original_on_empty_llm_response(self, monkeypatch):
         import backend.app.query_expansion as qe
+
         importlib.reload(qe)
 
         monkeypatch.setattr(qe, "HYDE_ENABLED", True)
@@ -81,6 +84,8 @@ class TestGenerateHydeQuery:
     def test_empty_query_returned_unchanged(self, monkeypatch):
         import backend.app.query_expansion as qe
 
+        importlib.reload(qe)
+
         monkeypatch.setattr(qe, "HYDE_ENABLED", True)
 
         assert qe.generate_hyde_query("") == ""
@@ -89,6 +94,7 @@ class TestGenerateHydeQuery:
     def test_hypothesis_different_from_original(self, monkeypatch):
         """The HyDE text should be clearly different from the raw question."""
         import backend.app.query_expansion as qe
+
         importlib.reload(qe)
 
         monkeypatch.setattr(qe, "HYDE_ENABLED", True)
@@ -109,6 +115,7 @@ class TestGenerateHydeQuery:
 
     def test_respects_max_tokens_config(self, monkeypatch):
         import backend.app.query_expansion as qe
+
         importlib.reload(qe)
 
         monkeypatch.setattr(qe, "HYDE_MAX_TOKENS", 50)
