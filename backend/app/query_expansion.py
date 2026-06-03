@@ -34,6 +34,8 @@ from __future__ import annotations
 import logging
 import os
 
+from .gemini_client import GEMINI_MODEL, _get_client
+
 logger = logging.getLogger(__name__)
 
 HYDE_ENABLED: bool = os.getenv("HYDE_ENABLED", "true").lower() == "true"
@@ -69,8 +71,6 @@ def generate_hyde_query(query: str) -> str:
 
     try:
         from google.genai import types
-
-        from .gemini_client import GEMINI_MODEL, _get_client
 
         prompt = _HYDE_PROMPT.format(query=query.strip())
         response = _get_client().models.generate_content(
