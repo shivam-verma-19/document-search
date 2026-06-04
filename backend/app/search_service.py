@@ -12,6 +12,18 @@ from .utils import normalize_text
 logger = logging.getLogger(__name__)
 
 
+_embedding_blocked_until: float = 0.0
+
+
+def _is_embedding_blocked() -> bool:
+    return time.time() < _embedding_blocked_until
+
+
+def _block_embedding(seconds: int = 60) -> None:
+    global _embedding_blocked_until
+    _embedding_blocked_until = time.time() + seconds
+
+
 # ─── RRF fusion ───────────────────────────────────────────────────────────────
 
 
@@ -77,6 +89,8 @@ def hybrid_search(
 
     # ── Vector branch (HyDE-expanded) ─────────────────────────────────────────
     try:
+        if _is_embedding_blocked():
+            raise Exception("Embedding skipped: rate-limited")
         hyde_text = generate_hyde_query(query)
         embedding = embeddings.get_embedding(hyde_text)
         vector_docs = repository.vector_search(embedding, k=k)
@@ -84,6 +98,8 @@ def hybrid_search(
             f"Vector branch: {len(vector_docs)} docs (HyDE={'yes' if hyde_text != query else 'no'})"
         )
     except Exception as e:
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            _block_embedding(60)
         logger.warning(f"Vector search failed (continuing with keyword only): {e}")
 
     # ── BM25 branch (original normalized query) ────────────────────────────────

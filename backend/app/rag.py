@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+from decimal import Decimal
 from typing import Optional
 
 from .cache_service import get_cached_answer, set_cached_answer
@@ -24,7 +25,7 @@ MIN_DOCS_FOR_RAG: int = 2
 RAG_TOP_K: int = 5
 
 # Default LLM retry attempts.
-LLM_MAX_RETRIES: int = 3
+LLM_MAX_RETRIES: int = 1
 
 TERSE_SYSTEM = "Reply concise. No filler. No preamble. Facts only."
 
@@ -99,7 +100,7 @@ def invoke_llm_with_retry(
         return retry_with_backoff(
             lambda: client.invoke(prompt=prompt, query=query, context=context),
             max_retries=max_retries,
-            base_delay_ms=3000,
+            base_delay_ms=500,
         )
     except Exception as e:
         logger.error(f"LLM invocation failed: {e}", exc_info=True)
@@ -199,6 +200,7 @@ def ask_question(query: str) -> str:
             answer = result["answer"]
             set_cached_answer(cache_key, answer)
             elapsed_ms = (time.time() - start_time) * 1000
+            elapsed_ms = Decimal(str(elapsed_ms))
             logger.info(f"RAG response generated in {elapsed_ms:.0f}ms")
             confidence = min(1.0, doc_count / RAG_TOP_K)
             emit_confidence_metric(
@@ -223,6 +225,7 @@ def ask_question(query: str) -> str:
             if not result["answer"].startswith("Error:"):
                 set_cached_answer(cache_key, answer)
         elapsed_ms = (time.time() - start_time) * 1000
+        elapsed_ms = Decimal(str(elapsed_ms))
         logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
         emit_confidence_metric(0.5, escalated=False, path="fallback", source="llm")
         try:
@@ -339,6 +342,7 @@ def ask_question_stream(query: str):
     if full_answer:
         set_cached_answer(cache_key, full_answer)
         elapsed_ms = (time.time() - start_time) * 1000
+        elapsed_ms = Decimal(str(elapsed_ms))
         source_label = "rag" if docs else "llm"
         try:
             metrics.log_metrics(query, elapsed_ms, f"{source_label}_stream")
