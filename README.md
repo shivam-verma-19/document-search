@@ -143,7 +143,7 @@ Key test modules:
 
 ### Requirements
 
-- Python 3.10+
+- Python 3.13+
 - AWS credentials (or moto for tests)
 - Google Gemini API key
 
