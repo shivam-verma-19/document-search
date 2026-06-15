@@ -115,12 +115,12 @@ def hybrid_search(
         embedding,
         k=retrieval_depth,
     )
-    
+
     bm25_docs = repository.keyword_search(
         normalized_query,
         k=retrieval_depth,
     )
-    
+
     fused = _reciprocal_rank_fusion(
         vector_docs,
         bm25_docs,

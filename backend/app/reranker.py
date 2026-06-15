@@ -19,8 +19,7 @@ import threading
 from typing import List
 
 import torch
-from transformers import AutoModelForSequenceClassification
-from transformers import AutoTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +45,7 @@ def _load_model():
 
         _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-        _model = AutoModelForSequenceClassification.from_pretrained(
-            MODEL_NAME
-        )
+        _model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
 
         _model.eval()
 
@@ -98,10 +95,7 @@ def rerank(query: str, docs: list) -> list:
     if not docs:
         return docs
 
-    texts = [
-        getattr(doc, "page_content", "")
-        for doc in docs
-    ]
+    texts = [getattr(doc, "page_content", "") for doc in docs]
 
     scores = _predict_scores(query, texts)
 
@@ -130,10 +124,7 @@ def rerank_with_scores(
     if not docs:
         return []
 
-    texts = [
-        getattr(doc, "page_content", "")
-        for doc in docs
-    ]
+    texts = [getattr(doc, "page_content", "") for doc in docs]
 
     scores = _predict_scores(query, texts)
 
