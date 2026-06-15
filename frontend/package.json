@@ -12,7 +12,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "amazon-cognito-identity-js": "^6.3.16",
+    "amazon-cognito-identity-js": "^6.3.18",
     "axios": "^1.16.0",
     "next": "^16.2.6",
     "react": "^19.2.5",
