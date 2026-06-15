@@ -109,7 +109,23 @@ def hybrid_search(
     except Exception as e:
         logger.warning(f"BM25 search failed (continuing with vector only): {e}")
 
-    fused = _reciprocal_rank_fusion(vector_docs, bm25_docs, k=k)
+    retrieval_depth = max(k * 4, 20)
+
+    vector_docs = repository.vector_search(
+        embedding,
+        k=retrieval_depth,
+    )
+    
+    bm25_docs = repository.keyword_search(
+        normalized_query,
+        k=retrieval_depth,
+    )
+    
+    fused = _reciprocal_rank_fusion(
+        vector_docs,
+        bm25_docs,
+        k=retrieval_depth,
+    )
     elapsed_ms = (time.time() - start_time) * 1000
     logger.info(
         f"Hybrid search (RRF) completed in {elapsed_ms:.0f}ms, {len(fused)} docs"
@@ -120,17 +136,42 @@ def hybrid_search(
 # ─── Reranker ─────────────────────────────────────────────────────────────────
 
 
-def rerank_documents(query: str, docs: List[SearchDocument]) -> List[SearchDocument]:
-    """Re-rank documents using Gemini cross-encoder for semantic relevance."""
+def rerank_documents(
+    query: str,
+    docs: List[SearchDocument],
+    top_k: int | None = None,
+) -> List[SearchDocument]:
+
     from . import reranker
 
     if not docs:
         return docs
+
     try:
+
         start_time = time.time()
-        reranked = reranker.rerank(query, docs)
-        logger.debug(f"Reranking completed in {(time.time()-start_time)*1000:.0f}ms")
+
+        reranked = reranker.rerank(
+            query=query,
+            docs=docs,
+        )
+
+        if top_k:
+            reranked = reranked[:top_k]
+
+        logger.info(
+            "BGE reranking completed in %.0f ms",
+            (time.time() - start_time) * 1000,
+        )
+
         return reranked
+
     except Exception as e:
-        logger.warning(f"Reranking failed, using original order: {e}", exc_info=True)
+
+        logger.warning(
+            "Reranking failed, using original ranking: %s",
+            e,
+            exc_info=True,
+        )
+
         return docs
