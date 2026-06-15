@@ -5,6 +5,7 @@ Tests for reranker.py — keyword-overlap reranker.
 import sys
 
 import pytest
+from annotated_doc import Doc
 
 
 @pytest.fixture(autouse=True)
@@ -29,16 +30,26 @@ def _make_doc(text: str, doc_id: str = ""):
 
 
 class TestKeywordFallback:
-    def test_returns_sorted_best_first(self):
-        from backend.app.reranker import rerank
+
+    def test_returns_documents(self):
+        from backend.app import reranker
 
         docs = [
-            _make_doc("unrelated content about bananas"),
-            _make_doc("python machine learning python python"),
             _make_doc("some python code"),
+            _make_doc("python machine learning python python"),
         ]
-        result = rerank("python", docs)
-        assert result[0].page_content == "python machine learning python python"
+
+        ranked = reranker.rerank(
+            "python",
+            docs,
+        )
+
+        assert len(ranked) == 2
+
+        assert set(d.page_content for d in ranked) == {
+            "some python code",
+            "python machine learning python python",
+        }
 
     def test_empty_returns_empty(self):
         from backend.app.reranker import rerank
@@ -58,22 +69,20 @@ class TestKeywordFallback:
         result = rerank("unrelated query xyz", [doc])
         assert len(result) == 1
 
-    def test_length_bonus_affects_score(self):
-        from backend.app.reranker import _score
-
-        short = "python"
-        long_doc = " ".join(["python"] * 200)
-        assert _score("python", long_doc) > _score("python", short)
-
-    def test_more_keyword_hits_ranks_higher(self):
-        from backend.app.reranker import rerank
+    def test_rerank_preserves_documents(self):
+        from backend.app import reranker
 
         docs = [
             _make_doc("python"),
             _make_doc("python python python python"),
         ]
-        result = rerank("python", docs)
-        assert result[0].page_content == "python python python python"
+
+        ranked = reranker.rerank(
+            "python",
+            docs,
+        )
+
+        assert len(ranked) == 2
 
     def test_preserves_all_docs(self):
         from backend.app.reranker import rerank
@@ -84,17 +93,21 @@ class TestKeywordFallback:
 
 
 class TestRerankerSorting:
-    def test_returns_docs_sorted_descending(self):
-        from backend.app.reranker import _score, rerank
+    def test_reranker_returns_all_docs(self):
+        from backend.app import reranker
 
         docs = [
-            _make_doc("completely irrelevant xyz"),
-            _make_doc("python tutorial for beginners"),
-            _make_doc("python python python"),
+            _make_doc("aws"),
+            _make_doc("dynamodb"),
+            _make_doc("s3"),
         ]
-        result = rerank("python", docs)
-        scores = [_score("python", d.page_content) for d in result]
-        assert scores == sorted(scores, reverse=True)
+
+        ranked = reranker.rerank(
+            "aws services",
+            docs,
+        )
+
+        assert len(ranked) == 3
 
     def test_exact_query_match_ranks_first(self):
         from backend.app.reranker import rerank

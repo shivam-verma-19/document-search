@@ -86,7 +86,7 @@ def hybrid_search(
 
     vector_docs: List[SearchDocument] = []
     bm25_docs: List[SearchDocument] = []
-
+    embedding: None | list[float] = None
     # ── Vector branch (HyDE-expanded) ─────────────────────────────────────────
     try:
         if _is_embedding_blocked():
@@ -124,7 +124,7 @@ def hybrid_search(
     fused = _reciprocal_rank_fusion(
         vector_docs,
         bm25_docs,
-        k=retrieval_depth,
+        k=3,
     )
     elapsed_ms = (time.time() - start_time) * 1000
     logger.info(
