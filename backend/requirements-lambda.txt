@@ -15,5 +15,4 @@ python-multipart
 pydantic
 torch
 transformers>=4.41.0
-sentencepiece
 accelerate
