@@ -134,6 +134,7 @@ jobs:
             -v $(pwd):/var/task \
             public.ecr.aws/lambda/python:3.13 \
             -c "
+              yum install -y findutils
               pip install -r backend/requirements-lambda.txt \
               --platform manylinux2014_x86_64 \
               --only-binary=:all: \
