@@ -220,3 +220,24 @@ class TestScoreThreshold:
 
         # Only the high-score doc should be present
         assert all(getattr(d, "score", 1.0) >= 0.0 for d in results)
+
+
+class TestReranking:
+    def test_disabled_reranker_preserves_order_and_top_k(self, monkeypatch):
+        from backend.app.search_service import rerank_documents
+
+        monkeypatch.setenv("ENABLE_RERANKER", "false")
+        docs = [_make_doc("first"), _make_doc("second")]
+
+        assert rerank_documents("query", docs, top_k=1) == docs[:1]
+
+    def test_missing_reranker_dependencies_falls_back(self, monkeypatch):
+        import sys
+
+        from backend.app.search_service import rerank_documents
+
+        monkeypatch.setenv("ENABLE_RERANKER", "true")
+        monkeypatch.setitem(sys.modules, "backend.app.reranker", None)
+        docs = [_make_doc("first"), _make_doc("second")]
+
+        assert rerank_documents("query", docs) == docs

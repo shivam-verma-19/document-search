@@ -13,9 +13,10 @@ resource "aws_lambda_function" "rag_api" {
 
   environment {
     variables = {
-      QUEUE_URL    = aws_sqs_queue.rag_queue.id
-      SECRET_NAME  = aws_secretsmanager_secret.rag_secrets.name
-      BUCKET_NAME  = aws_s3_bucket.uploads.bucket
+      QUEUE_URL       = aws_sqs_queue.rag_queue.id
+      SECRET_NAME     = aws_secretsmanager_secret.rag_secrets.name
+      BUCKET_NAME     = aws_s3_bucket.uploads.bucket
+      ENABLE_RERANKER = "false"
 
       # S3 Vectors — must match resource names in s3.tf
       S3_VECTOR_BUCKET_NAME = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name

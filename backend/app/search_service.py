@@ -1,6 +1,7 @@
 """Search service: HyDE query expansion → hybrid RRF fusion → reranking."""
 
 import logging
+import os
 import time
 from typing import List
 
@@ -142,12 +143,21 @@ def rerank_documents(
     top_k: int | None = None,
 ) -> List[SearchDocument]:
 
-    from . import reranker
-
     if not docs:
         return docs
 
+    reranker_disabled = os.getenv("ENABLE_RERANKER", "true").lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    if reranker_disabled:
+        logger.info("BGE reranking disabled; using original ranking")
+        return docs[:top_k] if top_k else docs
+
     try:
+        from . import reranker
 
         start_time = time.time()
 

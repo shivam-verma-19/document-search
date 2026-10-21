@@ -156,6 +156,29 @@ jobs:
           # Copy backend code
           cp backend/__init__.py lambda_package/backend/__init__.py
           cp -r backend/app lambda_package/backend/
+
+          # Lambda counts the extracted files, not the compressed ZIP size.
+          python - <<'PY'
+          from pathlib import Path
+
+          package = Path("lambda_package")
+          files = (
+              path
+              for path in package.rglob("*")
+              if path.is_file()
+              and path.suffix != ".pyc"
+              and not any(
+                  part == "__pycache__"
+                  or part.endswith((".dist-info", ".egg-info"))
+                  for part in path.parts
+              )
+          )
+          size = sum(path.stat().st_size for path in files)
+          limit = 262_144_000
+          print(f"Lambda package unzipped size: {size:,} bytes (limit: {limit:,})")
+          if size >= limit:
+              raise SystemExit("Lambda package must be smaller than 262,144,000 bytes")
+          PY
               
           # Create deployment zip
           cd lambda_package
@@ -170,11 +193,6 @@ jobs:
               
           ls -lh backend/deployment.zip
               
-          SIZE=$(du -m backend/deployment.zip | cut -f1)
-              
-          if [ "$SIZE" -gt 70 ]; then
-            echo "WARN: Lambda zip exceeds 70MB limit"
-          fi
         
       - name: Terraform Plan
         run: terraform plan
