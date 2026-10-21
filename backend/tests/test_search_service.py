@@ -234,9 +234,11 @@ class TestReranking:
     def test_missing_reranker_dependencies_falls_back(self, monkeypatch):
         import sys
 
+        import backend.app
         from backend.app.search_service import rerank_documents
 
         monkeypatch.setenv("ENABLE_RERANKER", "true")
+        monkeypatch.delattr(backend.app, "reranker", raising=False)
         monkeypatch.setitem(sys.modules, "backend.app.reranker", None)
         docs = [_make_doc("first"), _make_doc("second")]
 
