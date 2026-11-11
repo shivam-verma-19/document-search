@@ -86,7 +86,7 @@ def decompose_query(query: str) -> List[str]:
             for line in raw_text.split("\n")
             if line.strip()
         ]
-        sub_queries = [l for l in lines if len(l) > 3][:MAX_SUB_QUERIES]
+        sub_queries = [line for line in lines if len(line) > 3][:MAX_SUB_QUERIES]
 
         if len(sub_queries) > 1:
             logger.info(
