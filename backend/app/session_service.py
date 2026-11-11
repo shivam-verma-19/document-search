@@ -131,7 +131,9 @@ def clear_session(user_id: str, session_id: str) -> bool:
         _get_table().delete_item(
             Key={"user_id": str(user_id), "session_id": str(session_id)}
         )
-        logger.info("Cleared session history for user=%s session=%s", user_id, session_id)
+        logger.info(
+            "Cleared session history for user=%s session=%s", user_id, session_id
+        )
         return True
     except Exception as e:
         logger.warning(

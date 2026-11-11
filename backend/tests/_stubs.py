@@ -99,6 +99,7 @@ def install_all_stubs():
     sys.modules["backend.app.query_planner"] = mock_qp
     try:
         import backend.app
+
         backend.app.query_planner = mock_qp
     except Exception:
         pass
@@ -112,6 +113,7 @@ def install_all_stubs():
     sys.modules["backend.app.session_service"] = mock_session
     try:
         import backend.app
+
         backend.app.session_service = mock_session
     except Exception:
         pass

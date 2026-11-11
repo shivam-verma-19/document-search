@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import sys
-
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Query, Request, UploadFile
@@ -131,7 +130,11 @@ def ask(
     section: Optional[str] = Query(default=None),
     user: dict = Depends(verify_cognito_token),
 ):
-    user_id = user if isinstance(user, str) else (user.get("sub") or user.get("email") or "anonymous")
+    user_id = (
+        user
+        if isinstance(user, str)
+        else (user.get("sub") or user.get("email") or "anonymous")
+    )
     filters = {}
     if file_type:
         filters["file_type"] = file_type
@@ -177,7 +180,11 @@ async def ask_stream(
           output.textContent += e.data.replace(/\\\\n/g, '\\n');
         };
     """
-    user_id = user if isinstance(user, str) else (user.get("sub") or user.get("email") or "anonymous")
+    user_id = (
+        user
+        if isinstance(user, str)
+        else (user.get("sub") or user.get("email") or "anonymous")
+    )
     filters = {}
     if file_type:
         filters["file_type"] = file_type
@@ -216,7 +223,11 @@ def delete_session(
 ):
     from .session_service import clear_session
 
-    user_id = user if isinstance(user, str) else (user.get("sub") or user.get("email") or "anonymous")
+    user_id = (
+        user
+        if isinstance(user, str)
+        else (user.get("sub") or user.get("email") or "anonymous")
+    )
     cleared = clear_session(user_id, session_id)
     return {"cleared": cleared, "session_id": session_id}
 

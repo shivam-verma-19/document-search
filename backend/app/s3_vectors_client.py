@@ -131,7 +131,9 @@ def search_documents(
                 "_id": item["Key"],
                 "_source": {
                     "text": meta.get("text", ""),
-                    "metadata": {k_meta: v for k_meta, v in meta.items() if k_meta != "text"},
+                    "metadata": {
+                        k_meta: v for k_meta, v in meta.items() if k_meta != "text"
+                    },
                 },
                 "score": score,
             }

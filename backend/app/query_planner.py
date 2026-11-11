@@ -63,7 +63,9 @@ def decompose_query(query: str) -> List[str]:
         # Check complexity first: skip decomposition for trivial questions
         classification = classify_complexity(clean_query)
         if classification.complexity == "simple":
-            logger.debug("Query is simple; skipping decomposition: '%s'", clean_query[:40])
+            logger.debug(
+                "Query is simple; skipping decomposition: '%s'", clean_query[:40]
+            )
             return [clean_query]
 
         from google.genai import types

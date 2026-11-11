@@ -49,9 +49,11 @@ class Chunk:
 # ─── Header & Boundary Detection ──────────────────────────────────────────────
 
 _HEADER_PATTERNS = [
-    re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE),                    # Markdown # Header
-    re.compile(r"^([A-Z0-9\s\-_]{3,50}):\s*$", re.MULTILINE),       # SECTION:
-    re.compile(r"^(\d+\.?\s+[A-Z][A-Za-z0-9\s\-_]{2,50})$", re.MULTILINE), # 1. Introduction
+    re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE),  # Markdown # Header
+    re.compile(r"^([A-Z0-9\s\-_]{3,50}):\s*$", re.MULTILINE),  # SECTION:
+    re.compile(
+        r"^(\d+\.?\s+[A-Z][A-Za-z0-9\s\-_]{2,50})$", re.MULTILINE
+    ),  # 1. Introduction
 ]
 
 

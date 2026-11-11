@@ -190,9 +190,7 @@ def evaluate_retrieval(
                     mrr = 1.0 / rank
 
         recall = hits / len(relevant_set) if relevant_set else 0.0
-        context_precision = (
-            precision_sum / len(relevant_set) if relevant_set else 0.0
-        )
+        context_precision = precision_sum / len(relevant_set) if relevant_set else 0.0
         context_recall = recall
 
         logger.debug(
@@ -260,9 +258,7 @@ def evaluate_answer(
     faithfulness = _llm_score(
         _FAITHFULNESS_PROMPT.format(context=context[:2000], answer=answer[:1000])
     )
-    relevance = _llm_score(
-        _RELEVANCE_PROMPT.format(query=query, answer=answer[:1000])
-    )
+    relevance = _llm_score(_RELEVANCE_PROMPT.format(query=query, answer=answer[:1000]))
 
     logger.debug(
         "Answer eval: faithfulness=%.3f, relevance=%.3f",

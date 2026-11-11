@@ -71,7 +71,9 @@ def _load_model():
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
             _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            logger.info("Loading Cross-Encoder reranker model: %s on %s", MODEL_NAME, _device)
+            logger.info(
+                "Loading Cross-Encoder reranker model: %s on %s", MODEL_NAME, _device
+            )
 
             _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
             _model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
@@ -123,7 +125,9 @@ def _predict_scores(
 
         return scores
     except Exception as e:
-        logger.warning("Cross-encoder inference failed (%s). Using lexical fallback.", e)
+        logger.warning(
+            "Cross-encoder inference failed (%s). Using lexical fallback.", e
+        )
         return _lexical_overlap_scores(query, texts)
 
 

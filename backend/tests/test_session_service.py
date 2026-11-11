@@ -40,7 +40,9 @@ class TestSessionService:
     def test_empty_session_returns_empty_list(self):
         _setup_session_table()
         import importlib
+
         import backend.app.session_service as ss
+
         importlib.reload(ss)
 
         history = ss.get_session_history("user1", "session1")
@@ -50,7 +52,9 @@ class TestSessionService:
     def test_add_and_retrieve_turn(self):
         _setup_session_table()
         import importlib
+
         import backend.app.session_service as ss
+
         importlib.reload(ss)
 
         ss.add_session_turn("user1", "session1", "Hello RAG", "Hello! How can I help?")
@@ -66,7 +70,9 @@ class TestSessionService:
     def test_multiple_turns_ordered(self):
         _setup_session_table()
         import importlib
+
         import backend.app.session_service as ss
+
         importlib.reload(ss)
 
         ss.add_session_turn("user1", "session1", "Q1", "A1")
@@ -80,7 +86,9 @@ class TestSessionService:
     def test_clear_session(self):
         _setup_session_table()
         import importlib
+
         import backend.app.session_service as ss
+
         importlib.reload(ss)
 
         ss.add_session_turn("user1", "session1", "Q1", "A1")

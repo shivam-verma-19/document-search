@@ -44,7 +44,7 @@ Generate full summaries or per-chunk overviews by doc ID or chunk key, with grac
 
 ---
 
-## 🌟 Advanced RAG Enhancements (Implemented)
+## 🌟 Advanced RAG Enhancements
 
 The platform includes the following production-grade Hybrid RAG capabilities:
 
@@ -73,5 +73,3 @@ Configurable cross-encoder model (`BAAI/bge-reranker-base` or `cross-encoder/ms-
 
 ### 🌐 HyDE (Hypothetical Document Embeddings)
 HyDE query expansion generates a hypothetical answer via Gemini before embedding for dense vector search, coupled with BM25 keyword search and RRF fusion.
-
----

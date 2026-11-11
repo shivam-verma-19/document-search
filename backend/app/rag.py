@@ -1,8 +1,8 @@
+import json
 import logging
 import re
 import time
 from decimal import Decimal
-import json
 from typing import Optional
 
 from .cache_service import get_cached_answer, set_cached_answer
@@ -263,7 +263,11 @@ def ask_question(
     logger.info(f"Falling back to LLM-only (found {len(docs)} docs)")
     fallback_prompt = (
         f"{TERSE_SYSTEM}\n\n"
-        + (f"Conversation History:\n{conversation_context}\n\n" if conversation_context else "")
+        + (
+            f"Conversation History:\n{conversation_context}\n\n"
+            if conversation_context
+            else ""
+        )
         + f"{query}"
     )
     result = invoke_llm_with_retry(
@@ -380,7 +384,9 @@ def ask_question_stream(
         prompt = utils.build_prompt(context_plain, query, sources=sources)
     else:
         context_plain = (
-            f"Conversation History:\n{conversation_context}\n" if conversation_context else ""
+            f"Conversation History:\n{conversation_context}\n"
+            if conversation_context
+            else ""
         )
         prompt = f"{TERSE_SYSTEM}\n\n{context_plain}{query}"
 
