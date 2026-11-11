@@ -29,7 +29,7 @@ class TestMainRoutes:
         )
         monkeypatch.setattr("backend.app.auth.verify_cognito_token", lambda: "user-id")
         monkeypatch.setattr("backend.app.auth.optional_auth", lambda: "user-id")
-        monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
+        monkeypatch.setattr("backend.app.rag.ask_question", lambda q, *a, **kw: "mock answer")
         monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
         monkeypatch.setattr(
             "backend.app.ingest.upload_file_to_s3", lambda f, u: "user/file.txt"
@@ -63,6 +63,23 @@ class TestMainRoutes:
         resp = client.get("/ask?q=hello", headers={"Authorization": "Bearer fake"})
         assert resp.status_code == 200
         assert resp.json()["answer"] == "mock answer"
+
+    def test_ask_with_session_and_filters(self, client):
+        resp = client.get(
+            "/ask?q=hello&session_id=s123&file_type=pdf&section=intro",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["answer"] == "mock answer"
+        assert data["session_id"] == "s123"
+
+    def test_delete_session(self, client, monkeypatch):
+        monkeypatch.setattr("backend.app.session_service.clear_session", lambda u, s: True)
+        resp = client.delete("/session/s123", headers={"Authorization": "Bearer fake"})
+        assert resp.status_code == 200
+        assert resp.json()["session_id"] == "s123"
+        assert resp.json()["cleared"] is True
 
     def test_summary_returns_summary(self, client):
         resp = client.get(

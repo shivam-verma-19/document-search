@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import List
+from typing import List, Optional
 
 from . import embeddings
 from .document_repository import DocumentRepository, SearchDocument, get_repository
@@ -63,14 +63,15 @@ def hybrid_search(
     query: str,
     k: int = 5,
     repository: DocumentRepository | None = None,
+    filters: Optional[dict] = None,
 ) -> List[SearchDocument]:
     """
     Full retrieval pipeline:
       1. Normalize query.
       2. HyDE expansion — generate hypothetical answer, embed that instead
          of the raw question. Falls back to original query if LLM fails.
-      3. Vector search using HyDE embedding.
-      4. BM25 keyword search using normalized original query.
+      3. Vector search using HyDE embedding with metadata filtering.
+      4. BM25 keyword search using normalized original query with metadata filtering.
       5. RRF fusion of both result lists.
 
     Gracefully degrades if either branch fails.
@@ -84,20 +85,25 @@ def hybrid_search(
 
     normalized_query = normalize_text(query)
     start_time = time.time()
+    retrieval_depth = max(k * 4, 20)
 
     vector_docs: List[SearchDocument] = []
     bm25_docs: List[SearchDocument] = []
     embedding: None | list[float] = None
+
     # ── Vector branch (HyDE-expanded) ─────────────────────────────────────────
     try:
         if _is_embedding_blocked():
             raise Exception("Embedding skipped: rate-limited")
         hyde_text = generate_hyde_query(query)
         embedding = embeddings.get_embedding(hyde_text)
-        vector_docs = repository.vector_search(embedding, k=k)
-        logger.debug(
-            f"Vector branch: {len(vector_docs)} docs (HyDE={'yes' if hyde_text != query else 'no'})"
-        )
+        if embedding:
+            vector_docs = repository.vector_search(
+                embedding, k=retrieval_depth, filters=filters
+            )
+            logger.debug(
+                f"Vector branch: {len(vector_docs)} docs (HyDE={'yes' if hyde_text != query else 'no'})"
+            )
     except Exception as e:
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             _block_embedding(60)
@@ -105,27 +111,17 @@ def hybrid_search(
 
     # ── BM25 branch (original normalized query) ────────────────────────────────
     try:
-        bm25_docs = repository.keyword_search(normalized_query, k=k)
+        bm25_docs = repository.keyword_search(
+            normalized_query, k=retrieval_depth, filters=filters
+        )
         logger.debug(f"BM25 branch: {len(bm25_docs)} docs")
     except Exception as e:
         logger.warning(f"BM25 search failed (continuing with vector only): {e}")
 
-    retrieval_depth = max(k * 4, 20)
-
-    vector_docs = repository.vector_search(
-        embedding,
-        k=retrieval_depth,
-    )
-
-    bm25_docs = repository.keyword_search(
-        normalized_query,
-        k=retrieval_depth,
-    )
-
     fused = _reciprocal_rank_fusion(
         vector_docs,
         bm25_docs,
-        k=3,
+        k=k,
     )
     elapsed_ms = (time.time() - start_time) * 1000
     logger.info(

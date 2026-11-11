@@ -2,14 +2,21 @@ import logging
 import re
 import time
 from decimal import Decimal
+import json
 from typing import Optional
 
 from .cache_service import get_cached_answer, set_cached_answer
 from .llm_factory import get_llm_client
 from .monitoring import emit_confidence_metric
+from .query_planner import decompose_query
 from .retry import retry_with_backoff
 from .s3_vectors_client import get_document, get_documents_by_doc_base_id
 from .search_service import hybrid_search, rerank_documents
+from .session_service import (
+    add_session_turn,
+    format_conversation_context,
+    get_session_history,
+)
 from .utils import normalize_text
 
 logger = logging.getLogger(__name__)
@@ -110,11 +117,16 @@ def invoke_llm_with_retry(
 # ─── Prompt builder ───────────────────────────────────────────────────────────
 
 
-def _build_rag_prompt(docs: list, query: str) -> tuple[str, str]:
+def _build_rag_prompt(
+    docs: list, query: str, conversation_context: str = ""
+) -> tuple[str, str]:
     from . import utils
 
     sources = []
     plain_parts = []
+    if conversation_context:
+        plain_parts.append(f"Conversation History:\n{conversation_context}\n")
+
     for doc in docs:
         meta = getattr(doc, "metadata", {}) or {}
         sources.append(
@@ -158,7 +170,12 @@ def _run_eval_async(query: str, context: str, answer: str, docs: list) -> None:
 # ─── Main pipeline ────────────────────────────────────────────────────────────
 
 
-def ask_question(query: str) -> str:
+def ask_question(
+    query: str,
+    user_id: str = "anonymous",
+    session_id: Optional[str] = None,
+    filters: Optional[dict] = None,
+) -> str:
     from . import metrics, utils
 
     start_time = time.time()
@@ -175,21 +192,47 @@ def ask_question(query: str) -> str:
 
     logger.info(f"Processing query: {query[:50]}...")
 
+    # Load session history if session_id provided
+    history = get_session_history(user_id, session_id) if session_id else []
+    conversation_context = format_conversation_context(history)
+
     cache_key = normalize_text(query)
-    cached = get_cached_answer(cache_key)
-    if cached:
-        elapsed_ms = (time.time() - start_time) * 1000
-        logger.info(f"Cache hit, returned in {elapsed_ms:.0f}ms")
-        emit_confidence_metric(1.0, escalated=False, path="cached", source="cached")
-        return cached
+    if filters:
+        cache_key += "::" + json.dumps(filters, sort_keys=True)
 
-    docs = hybrid_search(query, k=RAG_TOP_K)
+    # Cache lookup (bypassed if prior conversation context exists)
+    if not conversation_context:
+        cached = get_cached_answer(cache_key)
+        if cached:
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(f"Cache hit, returned in {elapsed_ms:.0f}ms")
+            emit_confidence_metric(1.0, escalated=False, path="cached", source="cached")
+            return cached
+
+    # Multi-step query decomposition
+    sub_queries = decompose_query(query)
+    if len(sub_queries) > 1:
+        gathered_docs = []
+        seen_ids = set()
+        for sq in sub_queries:
+            sq_docs = hybrid_search(sq, k=RAG_TOP_K, filters=filters)
+            for d in sq_docs:
+                did = getattr(d, "doc_id", "") or d.page_content
+                if did not in seen_ids:
+                    seen_ids.add(did)
+                    gathered_docs.append(d)
+        docs = rerank_documents(query, gathered_docs, top_k=RAG_TOP_K)
+    else:
+        docs = hybrid_search(query, k=RAG_TOP_K, filters=filters)
+        if docs:
+            docs = rerank_documents(query, docs)
+
     doc_count = len(docs)
-    if docs:
-        docs = rerank_documents(query, docs)
 
     if docs:
-        prompt, context_plain = _build_rag_prompt(docs, query)
+        prompt, context_plain = _build_rag_prompt(
+            docs, query, conversation_context=conversation_context
+        )
         result = invoke_llm_with_retry(
             prompt=prompt,
             query=query,
@@ -198,7 +241,11 @@ def ask_question(query: str) -> str:
         )
         if result and result.get("answer"):
             answer = result["answer"]
-            set_cached_answer(cache_key, answer)
+            if not conversation_context:
+                set_cached_answer(cache_key, answer)
+            if session_id:
+                add_session_turn(user_id, session_id, query, answer)
+
             elapsed_ms = (time.time() - start_time) * 1000
             elapsed_ms = Decimal(str(elapsed_ms))
             logger.info(f"RAG response generated in {elapsed_ms:.0f}ms")
@@ -214,16 +261,20 @@ def ask_question(query: str) -> str:
             return answer
 
     logger.info(f"Falling back to LLM-only (found {len(docs)} docs)")
-    prompt = f"{TERSE_SYSTEM}\n\n{query}"
+    fallback_prompt = (
+        f"{TERSE_SYSTEM}\n\n"
+        + (f"Conversation History:\n{conversation_context}\n\n" if conversation_context else "")
+        + f"{query}"
+    )
     result = invoke_llm_with_retry(
-        prompt=prompt, query=query, context="", max_retries=LLM_MAX_RETRIES
+        prompt=fallback_prompt, query=query, context="", max_retries=LLM_MAX_RETRIES
     )
     if result and result.get("answer"):
         answer = f"I couldn't find relevant documents. Based on my knowledge:\n\n{result['answer']}"
-        if result and result.get("answer"):
-            answer = f"I couldn't find relevant documents. Based on my knowledge:\n\n{result['answer']}"
-            if not result["answer"].startswith("Error:"):
-                set_cached_answer(cache_key, answer)
+        if not result["answer"].startswith("Error:") and not conversation_context:
+            set_cached_answer(cache_key, answer)
+        if session_id:
+            add_session_turn(user_id, session_id, query, answer)
         elapsed_ms = (time.time() - start_time) * 1000
         elapsed_ms = Decimal(str(elapsed_ms))
         logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
@@ -245,19 +296,17 @@ def ask_question(query: str) -> str:
 # ─── Streaming pipeline ───────────────────────────────────────────────────────
 
 
-def ask_question_stream(query: str):
+def ask_question_stream(
+    query: str,
+    user_id: str = "anonymous",
+    session_id: Optional[str] = None,
+    filters: Optional[dict] = None,
+):
     """
     Generator version of ask_question for SSE streaming.
 
     Yields string tokens as they arrive from Gemini so the user sees
     output immediately instead of waiting for the full response.
-
-    Usage (FastAPI):
-        from fastapi.responses import StreamingResponse
-        return StreamingResponse(ask_question_stream(q), media_type="text/event-stream")
-
-    Each yielded value is an SSE-formatted string: "data: <token>\\n\\n"
-    A final "data: [DONE]\\n\\n" signals completion.
     """
     from google.genai import types
 
@@ -278,21 +327,42 @@ def ask_question_stream(query: str):
         yield "data: [DONE]\n\n"
         return
 
+    history = get_session_history(user_id, session_id) if session_id else []
+    conversation_context = format_conversation_context(history)
+
     cache_key = normalize_text(query)
-    cached = get_cached_answer(cache_key)
-    if cached:
-        # Stream cached answer token-by-token for consistent UX
-        for word in cached.split(" "):
-            yield f"data: {word} \n\n"
-        yield "data: [DONE]\n\n"
-        return
+    if filters:
+        cache_key += "::" + json.dumps(filters, sort_keys=True)
 
-    docs = hybrid_search(query, k=RAG_TOP_K)
-    if docs:
-        docs = rerank_documents(query, docs)
+    if not conversation_context:
+        cached = get_cached_answer(cache_key)
+        if cached:
+            for word in cached.split(" "):
+                yield f"data: {word} \n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+    sub_queries = decompose_query(query)
+    if len(sub_queries) > 1:
+        gathered_docs = []
+        seen_ids = set()
+        for sq in sub_queries:
+            sq_docs = hybrid_search(sq, k=RAG_TOP_K, filters=filters)
+            for d in sq_docs:
+                did = getattr(d, "doc_id", "") or d.page_content
+                if did not in seen_ids:
+                    seen_ids.add(did)
+                    gathered_docs.append(d)
+        docs = rerank_documents(query, gathered_docs, top_k=RAG_TOP_K)
+    else:
+        docs = hybrid_search(query, k=RAG_TOP_K, filters=filters)
+        if docs:
+            docs = rerank_documents(query, docs)
 
     if docs:
-        _, context_plain = _build_rag_prompt(docs, query)
+        _, context_plain = _build_rag_prompt(
+            docs, query, conversation_context=conversation_context
+        )
         from . import utils
 
         sources = [
@@ -309,8 +379,10 @@ def ask_question_stream(query: str):
         ]
         prompt = utils.build_prompt(context_plain, query, sources=sources)
     else:
-        context_plain = ""
-        prompt = f"{TERSE_SYSTEM}\n\n{query}"
+        context_plain = (
+            f"Conversation History:\n{conversation_context}\n" if conversation_context else ""
+        )
+        prompt = f"{TERSE_SYSTEM}\n\n{context_plain}{query}"
 
     clf = classify_complexity(query, context_plain)
     max_tokens = 2048 if clf.complexity == "complex" else 1024
@@ -326,7 +398,6 @@ def ask_question_stream(query: str):
             token = getattr(chunk, "text", "") or ""
             if token:
                 full_answer_parts.append(token)
-                # Escape newlines for SSE transport
                 safe_token = token.replace("\n", "\\n")
                 yield f"data: {safe_token}\n\n"
 
@@ -340,7 +411,10 @@ def ask_question_stream(query: str):
 
     full_answer = "".join(full_answer_parts)
     if full_answer:
-        set_cached_answer(cache_key, full_answer)
+        if not conversation_context:
+            set_cached_answer(cache_key, full_answer)
+        if session_id:
+            add_session_turn(user_id, session_id, query, full_answer)
         elapsed_ms = (time.time() - start_time) * 1000
         elapsed_ms = Decimal(str(elapsed_ms))
         source_label = "rag" if docs else "llm"

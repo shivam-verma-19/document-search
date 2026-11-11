@@ -170,3 +170,12 @@ class TestSemanticChunking:
 
         importlib.reload(ch)
         assert ch.CHUNKING_STRATEGY == "recursive"
+
+    def test_section_header_detected_and_tagged(self):
+        from backend.app.chunker import chunk_text
+
+        text = "# Introduction\nThis is introductory text.\n\n# Architecture\nThis describes the architecture."
+        result = chunk_text(text, strategy="adaptive")
+        assert len(result) >= 1
+        headers = [c.metadata.get("section_header") for c in result]
+        assert any(h in ["Introduction", "Architecture"] for h in headers)

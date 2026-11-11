@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from io import BytesIO
 
 import boto3
@@ -80,8 +81,8 @@ def mark_processed(key: str) -> None:
         table = get_idempotency_table()
         table.update_item(
             Key={"s3_key": key},
-            UpdateExpression="SET #status = :processed, processed_at = :processed_at, ttl = :ttl",
-            ExpressionAttributeNames={"#status": "status"},
+            UpdateExpression="SET #status = :processed, processed_at = :processed_at, #ttl = :ttl",
+            ExpressionAttributeNames={"#status": "status", "#ttl": "ttl"},
             ExpressionAttributeValues={
                 ":processed": "processed",
                 ":processed_at": int(time.time()),
@@ -122,11 +123,17 @@ def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[str
     """Return (chunks, doc_base_id, chunk_texts)."""
     filename = key.split("/")[-1]
     doc_base_id = str(uuid.uuid4())
+    user_id = key.split("/")[0] if "/" in key else "anonymous"
+    file_type = filename.split(".")[-1].lower() if "." in filename else "unknown"
+    upload_date = datetime.now(timezone.utc).isoformat()
 
     source_metadata = {
         "filename": filename,
         "s3_key": key,
         "doc_base_id": doc_base_id,
+        "user_id": user_id,
+        "file_type": file_type,
+        "upload_date": upload_date,
     }
     chunks = chunk_text(text, source_metadata=source_metadata)
     new_texts: list[str] = []
@@ -140,11 +147,14 @@ def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[str
             text=chunk.text,
             embedding=embedding,
             metadata={
-                "user_id": key.split("/")[0],
+                "user_id": user_id,
                 "chunk_index": chunk.metadata["chunk_index"],
                 "doc_base_id": doc_base_id,
                 "filename": filename,
                 "s3_key": key,
+                "file_type": file_type,
+                "upload_date": upload_date,
+                "section_header": chunk.metadata.get("section_header", "General"),
             },
         )
         new_texts.append(chunk.text)

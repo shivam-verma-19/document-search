@@ -44,165 +44,34 @@ Generate full summaries or per-chunk overviews by doc ID or chunk key, with grac
 
 ---
 
-## 🗺️ Planned Enhancements
+## 🌟 Advanced RAG Enhancements (Implemented)
 
-The following improvements are on the roadmap to bring this system to full Hybrid RAG maturity:
+The platform includes the following production-grade Hybrid RAG capabilities:
 
 ### 🔢 Adaptive Chunking
-Replace fixed-size recursive splitting with semantic chunking (e.g., `semantic-chunker` via LangChain) that splits on topic boundaries. This significantly improves retrieval precision because each chunk stays semantically coherent.
+Splits documents on natural section headers (`#`, `##`, title caps) and semantic boundaries using sentence cosine similarity with fallback to recursive chunking. Chunks retain source metadata and active `section_header`.
 
 ### 🏷️ Metadata-Aware Filtering
-Attach structured metadata (file type, upload date, user ID, section headers) to each chunk and expose filter parameters in the search API. Enables scoped queries like "only search documents from last 30 days".
+Structured metadata (`file_type`, `upload_date`, `user_id`, `section_header`) is tagged on each chunk during ingestion. The search API exposes filter parameters (`file_type`, `date_from`, `date_to`, `section`) for scoped retrieval.
 
 ### 🔁 Multi-Step Query Decomposition
-Introduce a query planning step that breaks complex questions into sub-queries, retrieves context for each, then synthesises a combined answer. Addresses multi-hop reasoning gaps in the current single-pass retrieval.
+Complex, multi-hop, or comparative questions are automatically broken down into atomic sub-queries by `query_planner.py`. Documents are retrieved for each sub-query, merged via reciprocal rank fusion, and synthesized into a coherent answer.
 
 ### 📊 RAGAS-Based Evaluation
-Replace the basic latency/precision DynamoDB store with a proper RAGAS evaluation harness tracking: Faithfulness, Answer Relevancy, Context Precision, and Context Recall. Wire these metrics into CloudWatch dashboards.
+Full implementation of the 4 standard RAGAS metrics:
+1. **Faithfulness**: Verifies claims against retrieved context.
+2. **Answer Relevancy**: Assesses directness and conciseness to the question.
+3. **Context Precision**: Evaluates signal-to-noise ratio and ranking quality of retrieved context.
+4. **Context Recall**: Measures coverage of essential facts.
+Scores are persisted to DynamoDB (`rag-eval`) and emitted to CloudWatch.
 
 ### 🔄 Conversation Memory
-Add a short-term conversation buffer so follow-up questions can reference prior turns without repeating context in the prompt. A DynamoDB session table keyed by `user_id + session_id` is the minimal implementation.
+Short-term multi-turn conversation buffer backed by DynamoDB (`rag-sessions` table, keyed by `user_id + session_id`). Follow-up questions maintain dialogue context across turns without manual re-prompting.
 
 ### 🏗️ True Cross-Encoder Reranking
-Swap the current keyword-overlap scorer in `reranker.py` for a real cross-encoder model (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2` via SentenceTransformers or a Bedrock-hosted model). The current scorer does not model semantic relationships between query and document.
+Configurable cross-encoder model (`BAAI/bge-reranker-base` or `cross-encoder/ms-marco-MiniLM-L-6-v2`) in `reranker.py` with GPU/CPU auto-detection and resilient lexical fallback.
 
 ### 🌐 HyDE (Hypothetical Document Embeddings)
-Before embedding the raw user query, use Gemini to generate a hypothetical ideal answer, embed that instead, and use it for vector search. Consistently improves recall for sparse or ambiguous queries with minimal added latency.
+HyDE query expansion generates a hypothetical answer via Gemini before embedding for dense vector search, coupled with BM25 keyword search and RRF fusion.
 
 ---
-
-## ☁️ AWS Serverless Architecture
-
-```text
-User
-↓
-API Gateway
-↓
-Lambda (FastAPI RAG API)
-↓
-Hybrid Retrieval
-├── S3 Vectors (Semantic Search)
-└── BM25 (DynamoDB warm cache)
-↓
-RRF Fusion
-↓
-Cross-Encoder Reranker
-↓
-Google Gemini 2.5 Flash
-↓
-Response (DynamoDB semantic cache)
-```
-
-Document ingestion runs asynchronously:
-
-```text
-User Upload
-↓
-S3 Bucket
-↓
-SQS Queue
-↓
-Worker Lambda (processor.py)
-├── Text extraction (PDF/DOCX/TXT)
-├── Chunking
-├── Gemini embeddings
-├── S3 Vectors index
-└── BM25 cache update (DynamoDB)
-```
-
----
-
-## 🧪 Test Coverage
-
-Current coverage: **≥ 90%** across all application modules.
-
-```bash
-pytest backend/tests/ --cov=backend --cov-report=term-missing
-```
-
-Key test modules:
-
-| Module | What's tested |
-|---|---|
-| `test_bm25_cache.py` | Warm cache TTL, versioned writes, conflict retries |
-| `test_cache_service.py` | Cache hit/miss/exception paths |
-| `test_embeddings.py` | Gemini embedding happy/error paths |
-| `test_faiss_client.py` | Index/search/delete/reset (legacy client) |
-| `test_s3_vectors_client.py` | S3 Vectors CRUD, pagination, chunk deletion |
-| `test_processor.py` | Idempotency, S3 download, PDF extraction |
-| `test_rag.py` | Full RAG pipeline, forbidden query filter, cache |
-| `test_search_service.py` | RRF fusion, hybrid search, reranker fallback |
-| `test_auth.py` | Cognito JWT, lazy JWK client init |
-| `test_retry.py` | Backoff, custom error lists, delay cap |
-| `test_secrets.py` | Env var precedence, Secrets Manager load |
-| `test_metric.py` | DynamoDB writes, pagination, CloudWatch push |
-
----
-
-## 🛠️ Local Development
-
-### Requirements
-
-- Python 3.13+
-- AWS credentials (or moto for tests)
-- Google Gemini API key
-
-### Install
-
-```bash
-pip install -r backend/requirements.txt
-```
-
-### Run tests
-
-```bash
-pytest backend/tests/ --cov=backend --cov-report=term-missing
-```
-
-### Environment variables
-
-| Variable | Description |
-|---|---|
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `S3_VECTOR_BUCKET_NAME` | S3 Vectors bucket |
-| `S3_VECTOR_INDEX_NAME` | S3 Vectors index name |
-| `DYNAMODB_BM25_TABLE` | BM25 corpus cache table |
-| `DYNAMODB_METRICS_TABLE` | Metrics table |
-| `SECRET_NAME` | AWS Secrets Manager secret name |
-| `COGNITO_USER_POOL_ID` | Cognito user pool (auth) |
-| `AUTH_DISABLED` | Set `true` to skip auth in dev |
-| `BUCKET_NAME` | S3 upload bucket |
-| `QUEUE_URL` | SQS queue URL for async ingestion |
-
----
-
-## 📁 Project Structure
-
-```
-backend/
-├── app/
-│   ├── auth.py              # Cognito JWT verification
-│   ├── bm25_cache.py        # DynamoDB-backed BM25 warm cache
-│   ├── cache_service.py     # Semantic answer cache
-│   ├── config.py            # Pydantic settings
-│   ├── document_repository.py  # Repository abstraction
-│   ├── embeddings.py        # Gemini gemini-embedding-001
-│   ├── faiss_client.py      # Legacy FAISS client (kept for compatibility)
-│   ├── gemini_client.py     # Gemini LLM router
-│   ├── hybrid.py            # BM25Retriever
-│   ├── ingest.py            # Upload + SQS enqueue
-│   ├── main.py              # FastAPI app + routes
-│   ├── metrics.py           # DynamoDB + CloudWatch metrics
-│   ├── monitoring.py        # CloudWatch push_metric
-│   ├── processor.py         # SQS worker: extract + embed + index
-│   ├── rag.py               # ask_question + summarize_doc pipeline
-│   ├── reranker.py          # Cross-encoder reranker (keyword-overlap scorer)
-│   ├── retry.py             # Exponential backoff
-│   ├── s3_vectors_client.py # AWS S3 Vectors CRUD
-│   ├── search_service.py    # hybrid_search + rerank_documents (RRF fusion)
-│   ├── secrets.py           # AWS Secrets Manager
-│   └── worker_lambda.py     # SQS Lambda handler
-└── tests/
-    ├── conftest.py          # Shared fixtures + moto mocks
-    └── test_*.py            # Per-module test files
-```

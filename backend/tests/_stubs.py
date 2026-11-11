@@ -92,6 +92,30 @@ def install_all_stubs():
     mock_qe.HYDE_ENABLED = True
     sys.modules["backend.app.query_expansion"] = mock_qe
 
+    # ── Query planner — passthrough by default ────────────────────────────────
+    mock_qp = MagicMock()
+    mock_qp.decompose_query = MagicMock(side_effect=lambda q: [q] if q else [])
+    mock_qp.QUERY_DECOMPOSITION_ENABLED = True
+    sys.modules["backend.app.query_planner"] = mock_qp
+    try:
+        import backend.app
+        backend.app.query_planner = mock_qp
+    except Exception:
+        pass
+
+    # ── Session service — no-op by default ────────────────────────────────────
+    mock_session = MagicMock()
+    mock_session.get_session_history = MagicMock(return_value=[])
+    mock_session.add_session_turn = MagicMock()
+    mock_session.clear_session = MagicMock(return_value=True)
+    mock_session.format_conversation_context = MagicMock(return_value="")
+    sys.modules["backend.app.session_service"] = mock_session
+    try:
+        import backend.app
+        backend.app.session_service = mock_session
+    except Exception:
+        pass
+
     # ── Eval — no-op by default ───────────────────────────────────────────────
     mock_eval = MagicMock()
     mock_eval.evaluate_retrieval = MagicMock()

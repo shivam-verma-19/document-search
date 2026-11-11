@@ -145,7 +145,7 @@ def app(monkeypatch):
     # -------------------------
     # RAG (LLM)
     # -------------------------
-    monkeypatch.setattr("backend.app.rag.ask_question", lambda q: "mock answer")
+    monkeypatch.setattr("backend.app.rag.ask_question", lambda q, *a, **kw: "mock answer")
     monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
 
     # -------------------------

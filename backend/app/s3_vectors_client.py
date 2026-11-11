@@ -57,7 +57,12 @@ def index_document(doc_id, text, embedding=None, metadata=None):
     return {"result": "created", "_id": str(doc_id)}
 
 
-def search_documents(query_embedding, k=5, score_threshold: float = 0.0) -> list[dict]:
+def search_documents(
+    query_embedding,
+    k=5,
+    score_threshold: float = 0.0,
+    filters: Optional[dict] = None,
+) -> list[dict]:
     """
     Return top-k documents as dicts with _id, _source, and similarity score.
 
@@ -67,16 +72,18 @@ def search_documents(query_embedding, k=5, score_threshold: float = 0.0) -> list
         score_threshold: Minimum similarity score to include a result (0.0 = no filter).
                          Typical cosine similarity: 0.0 (orthogonal) to 1.0 (identical).
                          A threshold of 0.5 filters out weakly related chunks.
+        filters: Optional dict of metadata key-value filters (e.g., {"file_type": "pdf", "section": "intro"}).
 
     Returns:
         List of dicts: {_id, _source: {text, metadata}, score}
-        Ordered best-first, filtered by score_threshold.
+        Ordered best-first, filtered by score_threshold and metadata filters.
     """
+    fetch_k = max(k * 4, 20) if filters else k
     response = _get_client().query_vectors(
         VectorBucketName=VECTOR_BUCKET_NAME,
         IndexName=VECTOR_INDEX_NAME,
         QueryVector={"Float32": query_embedding},
-        TopK=k,
+        TopK=fetch_k,
         ReturnMetadata=True,
     )
     docs = []
@@ -91,16 +98,46 @@ def search_documents(query_embedding, k=5, score_threshold: float = 0.0) -> list
             )
             continue
 
+        if filters:
+            match = True
+            for f_key, f_val in filters.items():
+                if f_val is None:
+                    continue
+                if f_key == "date_from":
+                    up_date = str(meta.get("upload_date", ""))
+                    if up_date and up_date < str(f_val):
+                        match = False
+                        break
+                elif f_key == "date_to":
+                    up_date = str(meta.get("upload_date", ""))
+                    if up_date and up_date > str(f_val):
+                        match = False
+                        break
+                elif f_key in ("section", "section_header"):
+                    sec = str(meta.get("section_header", "")).lower()
+                    if str(f_val).lower() not in sec:
+                        match = False
+                        break
+                else:
+                    doc_val = str(meta.get(f_key, "")).lower()
+                    if doc_val != str(f_val).lower():
+                        match = False
+                        break
+            if not match:
+                continue
+
         docs.append(
             {
                 "_id": item["Key"],
                 "_source": {
                     "text": meta.get("text", ""),
-                    "metadata": {k: v for k, v in meta.items() if k != "text"},
+                    "metadata": {k_meta: v for k_meta, v in meta.items() if k_meta != "text"},
                 },
                 "score": score,
             }
         )
+        if len(docs) >= k:
+            break
     return docs
 
 

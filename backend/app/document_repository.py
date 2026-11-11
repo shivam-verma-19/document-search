@@ -28,11 +28,15 @@ class DocumentRepository(ABC):
     """Abstract interface for document search operations."""
 
     @abstractmethod
-    def vector_search(self, embedding: list[float], k: int) -> List[SearchDocument]:
+    def vector_search(
+        self, embedding: list[float], k: int, filters: Optional[dict] = None
+    ) -> List[SearchDocument]:
         pass
 
     @abstractmethod
-    def keyword_search(self, query: str, k: int) -> List[SearchDocument]:
+    def keyword_search(
+        self, query: str, k: int, filters: Optional[dict] = None
+    ) -> List[SearchDocument]:
         pass
 
 
@@ -43,9 +47,11 @@ class HybridDocumentRepository(DocumentRepository):
         self._bm25_retriever = None
         self._bm25_corpus_version: int = -1
 
-    def vector_search(self, embedding: list[float], k: int) -> List[SearchDocument]:
+    def vector_search(
+        self, embedding: list[float], k: int, filters: Optional[dict] = None
+    ) -> List[SearchDocument]:
         """
-        Vector search via S3 Vectors with similarity score threshold.
+        Vector search via S3 Vectors with similarity score threshold and metadata filtering.
 
         Chunks below VECTOR_SCORE_THRESHOLD are discarded before RRF fusion,
         preventing low-relevance content from polluting the prompt context.
@@ -56,7 +62,10 @@ class HybridDocumentRepository(DocumentRepository):
         try:
             results = retry_with_backoff(
                 lambda: vector_store.search_documents(
-                    embedding, k=k, score_threshold=VECTOR_SCORE_THRESHOLD
+                    embedding,
+                    k=k,
+                    score_threshold=VECTOR_SCORE_THRESHOLD,
+                    filters=filters,
                 )
             )
             seen: set[str] = set()
@@ -86,7 +95,9 @@ class HybridDocumentRepository(DocumentRepository):
             logger.warning(f"Vector search failed: {e}")
             return []
 
-    def keyword_search(self, query: str, k: int) -> List[SearchDocument]:
+    def keyword_search(
+        self, query: str, k: int, filters: Optional[dict] = None
+    ) -> List[SearchDocument]:
         """Keyword search via BM25 cache — retriever rebuilt only on corpus version change."""
         from .bm25_cache import _warm_version, get_corpus
         from .hybrid import BM25Retriever
@@ -112,9 +123,34 @@ class HybridDocumentRepository(DocumentRepository):
                     f"({len(corpus_texts)} docs)"
                 )
 
-            results = self._bm25_retriever.search(query, k=k)
+            fetch_k = max(k * 4, 20) if filters else k
+            results = self._bm25_retriever.search(query, k=fetch_k)
+
+            if filters:
+                filtered_results = []
+                for doc in results:
+                    meta = doc.metadata or {}
+                    match = True
+                    for f_key, f_val in filters.items():
+                        if f_val is None:
+                            continue
+                        if f_key in ("section", "section_header"):
+                            sec = str(meta.get("section_header", "")).lower()
+                            if str(f_val).lower() not in sec:
+                                match = False
+                                break
+                        elif f_key in meta:
+                            if str(meta[f_key]).lower() != str(f_val).lower():
+                                match = False
+                                break
+                    if match:
+                        filtered_results.append(doc)
+                    if len(filtered_results) >= k:
+                        break
+                results = filtered_results
+
             logger.debug(f"BM25 search returned {len(results)} docs")
-            return results
+            return results[:k]
         except Exception as e:
             logger.warning(f"BM25 search failed: {e}")
             return []

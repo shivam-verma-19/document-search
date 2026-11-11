@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 
+from typing import Optional
+
 from fastapi import Depends, FastAPI, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from mangum import Mangum
@@ -122,12 +124,33 @@ async def upload(request: Request, file: UploadFile, user=Depends(optional_auth)
 def ask(
     request: Request,
     q: str = Query(..., min_length=1, max_length=500),
+    session_id: Optional[str] = Query(default=None),
+    file_type: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    section: Optional[str] = Query(default=None),
     user: dict = Depends(verify_cognito_token),
 ):
-    answer = ask_question(q)
+    user_id = user if isinstance(user, str) else (user.get("sub") or user.get("email") or "anonymous")
+    filters = {}
+    if file_type:
+        filters["file_type"] = file_type
+    if date_from:
+        filters["date_from"] = date_from
+    if date_to:
+        filters["date_to"] = date_to
+    if section:
+        filters["section"] = section
+
+    answer = ask_question(
+        q,
+        user_id=user_id,
+        session_id=session_id,
+        filters=filters or None,
+    )
     if answer.startswith("Error:") or "all model tiers failed" in answer:
         return JSONResponse(status_code=503, content={"answer": answer})
-    return {"answer": answer}
+    return {"answer": answer, "session_id": session_id}
 
 
 @limiter.limit("10/minute")
@@ -135,6 +158,11 @@ def ask(
 async def ask_stream(
     request: Request,
     q: str = Query(..., min_length=1, max_length=500),
+    session_id: Optional[str] = Query(default=None),
+    file_type: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    section: Optional[str] = Query(default=None),
     user: dict = Depends(verify_cognito_token),
 ):
     """
@@ -149,9 +177,24 @@ async def ask_stream(
           output.textContent += e.data.replace(/\\\\n/g, '\\n');
         };
     """
+    user_id = user if isinstance(user, str) else (user.get("sub") or user.get("email") or "anonymous")
+    filters = {}
+    if file_type:
+        filters["file_type"] = file_type
+    if date_from:
+        filters["date_from"] = date_from
+    if date_to:
+        filters["date_to"] = date_to
+    if section:
+        filters["section"] = section
 
     def _generate():
-        for chunk in ask_question_stream(q):
+        for chunk in ask_question_stream(
+            q,
+            user_id=user_id,
+            session_id=session_id,
+            filters=filters or None,
+        ):
             yield chunk
 
     return StreamingResponse(
@@ -162,6 +205,20 @@ async def ask_stream(
             "X-Accel-Buffering": "no",  # disable nginx buffering
         },
     )
+
+
+@limiter.limit("20/minute")
+@app.delete("/session/{session_id}")
+def delete_session(
+    request: Request,
+    session_id: str,
+    user: dict = Depends(verify_cognito_token),
+):
+    from .session_service import clear_session
+
+    user_id = user if isinstance(user, str) else (user.get("sub") or user.get("email") or "anonymous")
+    cleared = clear_session(user_id, session_id)
+    return {"cleared": cleared, "session_id": session_id}
 
 
 @limiter.limit("20/minute")

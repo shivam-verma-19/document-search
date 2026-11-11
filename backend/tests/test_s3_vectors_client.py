@@ -69,6 +69,20 @@ class TestSearchDocuments:
             result = m.search_documents([0.1] * 768, k=5)
         assert result == []
 
+    def test_filters_by_metadata(self):
+        _reset()
+        mock_client = MagicMock()
+        mock_client.query_vectors.return_value = {
+            "Vectors": [
+                {"Key": "k1", "Metadata": {"text": "hello", "file_type": "pdf"}},
+                {"Key": "k2", "Metadata": {"text": "world", "file_type": "txt"}},
+            ]
+        }
+        with patch.object(m, "_get_client", return_value=mock_client):
+            result = m.search_documents([0.1] * 768, k=5, filters={"file_type": "pdf"})
+        assert len(result) == 1
+        assert result[0]["_id"] == "k1"
+
 
 class TestSearchSimilar:
     def test_returns_texts_only(self):
