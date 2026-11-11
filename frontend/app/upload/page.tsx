@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useApi } from "@/hooks/useApi";
+import { useApi } from "@/hooks/useAPI";
 
 const ALLOWED_TYPES = ["application/pdf", "text/plain", "text/csv"];
 const MAX_SIZE_MB = 10;
