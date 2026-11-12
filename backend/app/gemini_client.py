@@ -73,6 +73,7 @@ def _is_trivially_simple(query: str) -> bool:
     q = query.strip()
     return bool(_SIMPLE_RE.match(q)) or len(q.split()) < 8
 
+
 QueryComplexity = Literal["simple", "complex"]
 
 _client = None

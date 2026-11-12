@@ -28,7 +28,9 @@ def _get_client():
 
         api_key = get_secret("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise ValueError("GROQ_API_KEY not configured. Set GROQ_API_KEY in environment or secrets.")
+            raise ValueError(
+                "GROQ_API_KEY not configured. Set GROQ_API_KEY in environment or secrets."
+            )
         _client = Groq(api_key=api_key)
     return _client
 

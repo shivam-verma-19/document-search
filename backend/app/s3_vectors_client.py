@@ -224,7 +224,9 @@ def delete_document(doc_id, user_id: str | None = None):
             keys = [key_str]
         else:
             document = get_document(key_str)
-            metadata = document.get("_source", {}).get("metadata", {}) if document else {}
+            metadata = (
+                document.get("_source", {}).get("metadata", {}) if document else {}
+            )
             keys = [key_str] if metadata.get("user_id") == user_id else []
     else:
         keys = _find_keys_for_doc_base_id(key_str, user_id=user_id)

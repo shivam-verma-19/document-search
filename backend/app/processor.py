@@ -24,6 +24,7 @@ def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
         futures = [executor.submit(get_embedding, text) for text in texts]
         return [f.result() for f in futures]
 
+
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -127,9 +128,7 @@ def _download_from_s3(bucket: str, key: str) -> bytes:
     return obj["Body"].read()
 
 
-def _chunk_and_embed(
-    text: str, key: str
-) -> tuple[list[Document], str, list[dict]]:
+def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[dict]]:
     """Return (chunks, doc_base_id, chunk_texts)."""
     filename = key.split("/")[-1]
     doc_base_id = str(uuid.uuid4())

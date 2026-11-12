@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   const logoutUrl = new URL("/logout", config.domain);
   logoutUrl.search = new URLSearchParams({
     client_id: config.clientId,
-    logout_uri: new URL("/", config.baseUrl).toString(),
+    logout_uri: config.baseUrl.origin,
   }).toString();
 
   let revocationWarning = false;

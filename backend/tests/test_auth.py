@@ -68,8 +68,8 @@ class TestVerifyToken:
         assert result == "user-id"
 
     def test_accepts_access_token_for_configured_client(self, monkeypatch):
-        from unittest.mock import MagicMock, patch
         from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
 
         import backend.app.auth as auth_mod
 

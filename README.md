@@ -101,6 +101,11 @@ COGNITO_CLIENT_ID=<terraform output cognito_client_id>
 RAG_API_URL=http://localhost:8000
 ```
 
+For a locally run FastAPI backend, set `AWS_REGION`, `COGNITO_USER_POOL_ID`, and
+`COGNITO_CLIENT_ID` in the backend process environment before starting it.
+Authentication configuration is read at startup; restarting the backend is
+required after changing these values.
+
 `AUTH_BASE_URL` must exactly match the `frontend_origin` used by Terraform. For
 production, set it to the HTTPS website origin, deploy/apply Terraform with
 `-var="frontend_origin=https://your-site.example"`, and use the same origin in

@@ -19,8 +19,8 @@ EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-0
 # ---------------------------------------------------------------------------
 # Module-level singletons
 # ---------------------------------------------------------------------------
-_client = None          # Gemini genai.Client — also used by tests via patch.object
-_local_model = None     # sentence-transformers SentenceTransformer instance
+_client = None  # Gemini genai.Client — also used by tests via patch.object
+_local_model = None  # sentence-transformers SentenceTransformer instance
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +30,7 @@ def _get_client():
     global _client
     if _client is None:
         from google import genai
+
         from .secrets import get_secret
 
         api_key = get_secret("GEMINI_API_KEY")
