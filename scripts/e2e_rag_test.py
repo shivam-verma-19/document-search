@@ -149,15 +149,19 @@ def run_e2e_test():
     print("======================================================================")
 
     # Patch embeddings globally during e2e test to operate offline
-    with mock_aws(), \
-         patch("backend.app.embeddings.get_embedding", return_value=[0.05] * 768):
+    with mock_aws(), patch(
+        "backend.app.embeddings.get_embedding", return_value=[0.05] * 768
+    ):
         _setup_mock_aws_infrastructure()
-        print("✅ [1/9] Mock AWS Infrastructure initialized (S3, DynamoDB, SecretsManager)")
+        print(
+            "✅ [1/9] Mock AWS Infrastructure initialized (S3, DynamoDB, SecretsManager)"
+        )
 
         # ------------------------------------------------------------------
         # 1. Document Ingestion & Adaptive Chunking
         # ------------------------------------------------------------------
         import backend.app.chunker as chunker
+
         chunks = chunker.chunk_text(SAMPLE_DOCUMENT, strategy="adaptive")
         assert len(chunks) >= 3, f"Expected at least 3 chunks, got {len(chunks)}"
 
@@ -165,7 +169,9 @@ def run_e2e_test():
         assert "Hybrid RAG Architecture" in headers, "Missing architecture header"
         assert "Scaling Mechanisms" in headers, "Missing scaling header"
         assert "Cost and Pricing" in headers, "Missing cost header"
-        print(f"✅ [2/9] Adaptive Chunking verified ({len(chunks)} chunks, headers: {set(headers)})")
+        print(
+            f"✅ [2/9] Adaptive Chunking verified ({len(chunks)} chunks, headers: {set(headers)})"
+        )
 
         # ------------------------------------------------------------------
         # 2. Ingestion Processing & Metadata Tagging
@@ -180,14 +186,21 @@ def run_e2e_test():
         indexed_vectors = []
 
         def mock_index_document(doc_id, text, embedding=None, metadata=None):
-            indexed_vectors.append({"_id": doc_id, "text": text, "metadata": metadata or {}})
+            indexed_vectors.append(
+                {"_id": doc_id, "text": text, "metadata": metadata or {}}
+            )
             return {"result": "created", "_id": str(doc_id)}
 
-        with patch("backend.app.s3_vectors_client.index_document", side_effect=mock_index_document), \
-             patch("backend.app.processor.get_s3_client", return_value=s3):
+        with patch(
+            "backend.app.s3_vectors_client.index_document",
+            side_effect=mock_index_document,
+        ), patch("backend.app.processor.get_s3_client", return_value=s3):
 
             import backend.app.processor as processor
-            proc_result = processor.process_file_from_s3("rag-upload-bucket", "user_123/platform_architecture.txt")
+
+            proc_result = processor.process_file_from_s3(
+                "rag-upload-bucket", "user_123/platform_architecture.txt"
+            )
 
         assert proc_result["status"] == "processed"
         assert len(indexed_vectors) >= 3
@@ -196,7 +209,9 @@ def run_e2e_test():
         assert "upload_date" in sample_meta
         assert sample_meta["user_id"] == "user_123"
         assert "section_header" in sample_meta
-        print(f"✅ [3/9] Processing & Metadata Tagging verified (user_id={sample_meta['user_id']}, file_type={sample_meta['file_type']})")
+        print(
+            f"✅ [3/9] Processing & Metadata Tagging verified (user_id={sample_meta['user_id']}, file_type={sample_meta['file_type']})"
+        )
 
         # ------------------------------------------------------------------
         # 3. Metadata-Aware Filtering
@@ -215,7 +230,9 @@ def run_e2e_test():
         }
 
         with patch.object(s3v, "_get_client") as mock_s3v_client:
-            mock_s3v_client.return_value.query_vectors.return_value = mock_query_response
+            mock_s3v_client.return_value.query_vectors.return_value = (
+                mock_query_response
+            )
 
             # Search with filter
             filtered_results = s3v.search_documents(
@@ -236,7 +253,9 @@ def run_e2e_test():
             )
             assert len(empty_results) == 0
 
-        print("✅ [4/9] Metadata-Aware Filtering verified (scoped queries correctly isolated)")
+        print(
+            "✅ [4/9] Metadata-Aware Filtering verified (scoped queries correctly isolated)"
+        )
 
         # ------------------------------------------------------------------
         # 4. Multi-Step Query Decomposition
@@ -244,7 +263,9 @@ def run_e2e_test():
         import backend.app.query_planner as qp
         from backend.app.gemini_client import ClassifierResult
 
-        complex_classifier = ClassifierResult(complexity="complex", score=0.9, signals=["compare"])
+        complex_classifier = ClassifierResult(
+            complexity="complex", score=0.9, signals=["compare"]
+        )
         mock_llm_plan_resp = MagicMock()
         mock_llm_plan_resp.text = (
             "AWS Lambda scaling mechanisms and concurrency limits\n"
@@ -253,14 +274,22 @@ def run_e2e_test():
         mock_gemini_client = MagicMock()
         mock_gemini_client.models.generate_content.return_value = mock_llm_plan_resp
 
-        with patch("backend.app.query_planner.classify_complexity", return_value=complex_classifier), \
-             patch("backend.app.query_planner._get_client", return_value=mock_gemini_client):
-            sub_queries = qp.decompose_query("Compare AWS Lambda and DynamoDB scaling mechanisms")
+        with patch(
+            "backend.app.query_planner.classify_complexity",
+            return_value=complex_classifier,
+        ), patch(
+            "backend.app.query_planner._get_client", return_value=mock_gemini_client
+        ):
+            sub_queries = qp.decompose_query(
+                "Compare AWS Lambda and DynamoDB scaling mechanisms"
+            )
             assert len(sub_queries) == 2
             assert "Lambda" in sub_queries[0]
             assert "DynamoDB" in sub_queries[1]
 
-        print(f"✅ [5/9] Multi-Step Query Decomposition verified ({len(sub_queries)} sub-queries generated)")
+        print(
+            f"✅ [5/9] Multi-Step Query Decomposition verified ({len(sub_queries)} sub-queries generated)"
+        )
 
         # ------------------------------------------------------------------
         # 5. Cross-Encoder Reranking
@@ -269,13 +298,24 @@ def run_e2e_test():
         from backend.app.document_repository import SearchDocument
 
         docs_to_rank = [
-            SearchDocument(page_content="Unrelated text about gardening and apples", doc_id="d1"),
-            SearchDocument(page_content="AWS Lambda scaling model handles burst concurrency", doc_id="d2"),
-            SearchDocument(page_content="DynamoDB provides on-demand scaling", doc_id="d3"),
+            SearchDocument(
+                page_content="Unrelated text about gardening and apples", doc_id="d1"
+            ),
+            SearchDocument(
+                page_content="AWS Lambda scaling model handles burst concurrency",
+                doc_id="d2",
+            ),
+            SearchDocument(
+                page_content="DynamoDB provides on-demand scaling", doc_id="d3"
+            ),
         ]
         reranked = reranker.rerank("AWS Lambda scaling model", docs_to_rank)
-        assert reranked[0].doc_id == "d2", "Most relevant document should be ranked first"
-        print("✅ [6/9] Cross-Encoder Reranking verified (semantic ordering with robust fallback)")
+        assert (
+            reranked[0].doc_id == "d2"
+        ), "Most relevant document should be ranked first"
+        print(
+            "✅ [6/9] Cross-Encoder Reranking verified (semantic ordering with robust fallback)"
+        )
 
         # ------------------------------------------------------------------
         # 6. Multi-Turn Conversation Memory (rag-sessions)
@@ -308,7 +348,9 @@ def run_e2e_test():
         formatted_context = session_service.format_conversation_context(history_t2)
         assert "User: What are the scaling mechanisms" in formatted_context
         assert "Assistant: AWS Lambda" in formatted_context
-        print("✅ [7/9] Conversation Memory verified (multi-turn history retained in DynamoDB)")
+        print(
+            "✅ [7/9] Conversation Memory verified (multi-turn history retained in DynamoDB)"
+        )
 
         # ------------------------------------------------------------------
         # 7. RAGAS Evaluation Harness
@@ -344,12 +386,15 @@ def run_e2e_test():
         assert "faithfulness" in rec
         assert "context_precision" in rec
         assert "context_recall" in rec
-        print(f"✅ [8/9] RAGAS Evaluation Harness verified (Faithfulness={rec['faithfulness']}, Precision={rec['context_precision']})")
+        print(
+            f"✅ [8/9] RAGAS Evaluation Harness verified (Faithfulness={rec['faithfulness']}, Precision={rec['context_precision']})"
+        )
 
         # ------------------------------------------------------------------
         # 8. FastAPI End-to-End API Routes
         # ------------------------------------------------------------------
         import backend.app.main as main_mod
+
         client = TestClient(main_mod.app)
 
         # Root
@@ -357,7 +402,10 @@ def run_e2e_test():
         assert r_root.status_code == 200 and r_root.json()["status"] == "running"
 
         # Ask with session_id and metadata filters
-        with patch("backend.app.main.ask_question", return_value="Serverless components scale automatically."):
+        with patch(
+            "backend.app.main.ask_question",
+            return_value="Serverless components scale automatically.",
+        ):
             r_ask = client.get(
                 "/ask?q=How+does+it+scale&session_id=e2e-session-uuid-001&file_type=txt&section=Scaling+Mechanisms",
                 headers={"Authorization": "Bearer fake-token"},
@@ -379,7 +427,9 @@ def run_e2e_test():
         assert r_del_session.status_code == 200
         assert r_del_session.json()["cleared"] is True
 
-        print("✅ [9/9] FastAPI API Routes (/upload, /ask, /eval, /metrics, /session/{id}) fully verified")
+        print(
+            "✅ [9/9] FastAPI API Routes (/upload, /ask, /eval, /metrics, /session/{id}) fully verified"
+        )
 
     print("======================================================================")
     print("🎉 ALL END-TO-END RAG PLATFORM VERIFICATIONS SUCCEEDED SUCCESSFULLY!")
