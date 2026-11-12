@@ -117,6 +117,23 @@ class TestCacheKeyNormalization:
         assert len(written_keys) == 2
         assert written_keys[0] == written_keys[1]
 
+    def test_search_is_scoped_to_the_current_user(self, monkeypatch):
+        rag = _load_rag(monkeypatch)
+        seen_filters = []
+
+        monkeypatch.setattr(
+            rag,
+            "hybrid_search",
+            lambda query, k=5, filters=None: (
+                seen_filters.append(filters)
+                or [_make_doc("chunk 1", "id1"), _make_doc("chunk 2", "id2")]
+            ),
+        )
+        rag.ask_question("question", user_id="user-a")
+
+        assert seen_filters
+        assert all(filters["user_id"] == "user-a" for filters in seen_filters)
+
     def test_trailing_punctuation_normalized(self, monkeypatch):
         written_keys = []
         rag = _load_rag(monkeypatch, router_answer="answer")

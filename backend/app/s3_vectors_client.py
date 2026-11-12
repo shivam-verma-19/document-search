@@ -197,27 +197,37 @@ def get_documents_by_doc_base_id(doc_base_id: str) -> list[dict]:
     return docs
 
 
-def _find_keys_for_doc_base_id(doc_base_id: str) -> list[str]:
+def _find_keys_for_doc_base_id(
+    doc_base_id: str, user_id: str | None = None
+) -> list[str]:
     paginator = _get_client().get_paginator("list_vectors")
     prefix = f"{doc_base_id}#"
     keys: list[str] = []
     for page in paginator.paginate(
-        VectorBucketName=VECTOR_BUCKET_NAME, IndexName=VECTOR_INDEX_NAME
+        VectorBucketName=VECTOR_BUCKET_NAME,
+        IndexName=VECTOR_INDEX_NAME,
+        ReturnMetadata=user_id is not None,
     ):
         for vector in page.get("Vectors", []):
             key = str(vector.get("Key", ""))
-            if key.startswith(prefix):
+            owner_id = vector.get("Metadata", {}).get("user_id")
+            if key.startswith(prefix) and (user_id is None or owner_id == user_id):
                 keys.append(key)
     return keys
 
 
-def delete_document(doc_id):
+def delete_document(doc_id, user_id: str | None = None):
     """Remove a document or document chunk from the index."""
     key_str = str(doc_id)
     if "#" in key_str:
-        keys = [key_str]
+        if user_id is None:
+            keys = [key_str]
+        else:
+            document = get_document(key_str)
+            metadata = document.get("_source", {}).get("metadata", {}) if document else {}
+            keys = [key_str] if metadata.get("user_id") == user_id else []
     else:
-        keys = _find_keys_for_doc_base_id(key_str)
+        keys = _find_keys_for_doc_base_id(key_str, user_id=user_id)
 
     if not keys:
         return {"result": "not_found", "_id": key_str, "deleted_count": 0}

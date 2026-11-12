@@ -103,8 +103,8 @@ class HybridDocumentRepository(DocumentRepository):
         from .hybrid import BM25Retriever
 
         try:
-            corpus_texts = get_corpus()
-            if not corpus_texts:
+            corpus_documents = get_corpus()
+            if not corpus_documents:
                 logger.debug("BM25 corpus empty, skipping keyword search")
                 return []
 
@@ -113,14 +113,18 @@ class HybridDocumentRepository(DocumentRepository):
                 or self._bm25_corpus_version != _warm_version
             ):
                 all_docs = [
-                    SearchDocument(page_content=t, doc_id=f"bm25:{i}")
-                    for i, t in enumerate(corpus_texts)
+                    SearchDocument(
+                        page_content=document["text"],
+                        doc_id=document.get("doc_id", f"bm25:{i}"),
+                        metadata=document.get("metadata", {}),
+                    )
+                    for i, document in enumerate(corpus_documents)
                 ]
                 self._bm25_retriever = BM25Retriever(all_docs)
                 self._bm25_corpus_version = _warm_version
                 logger.debug(
                     f"BM25 retriever rebuilt for corpus v{_warm_version} "
-                    f"({len(corpus_texts)} docs)"
+                    f"({len(corpus_documents)} docs)"
                 )
 
             fetch_k = max(k * 4, 20) if filters else k
@@ -134,7 +138,11 @@ class HybridDocumentRepository(DocumentRepository):
                     for f_key, f_val in filters.items():
                         if f_val is None:
                             continue
-                        if f_key in ("section", "section_header"):
+                        if f_key == "user_id":
+                            if str(meta.get("user_id", "")) != str(f_val):
+                                match = False
+                                break
+                        elif f_key in ("section", "section_header"):
                             sec = str(meta.get("section_header", "")).lower()
                             if str(f_val).lower() not in sec:
                                 match = False

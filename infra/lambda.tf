@@ -76,6 +76,23 @@ resource "aws_lambda_function" "rag_ingest_worker" {
   ]
 }
 
+resource "aws_lambda_function" "cognito_pre_signup" {
+  function_name    = "${var.project_name}-cognito-pre-signup"
+  s3_bucket        = aws_s3_object.lambda_deployment.bucket
+  s3_key           = aws_s3_object.lambda_deployment.key
+  source_code_hash = filebase64sha256(var.lambda_zip_path)
+
+  handler     = "backend.app.cognito_triggers.pre_signup_handler"
+  runtime     = "python3.13"
+  role        = aws_iam_role.cognito_pre_signup.arn
+  timeout     = 5
+  memory_size = 128
+
+  depends_on = [
+    aws_iam_role_policy_attachment.cognito_pre_signup_logs,
+  ]
+}
+
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.rag_api.function_name}"
   retention_in_days = 7
@@ -83,5 +100,10 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
 
 resource "aws_cloudwatch_log_group" "worker_lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.rag_ingest_worker.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "cognito_pre_signup_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.cognito_pre_signup.function_name}"
   retention_in_days = 7
 }

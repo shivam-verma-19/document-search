@@ -59,6 +59,20 @@ _HEDGING_PHRASES = [
 
 _HEDGING_RE = [re.compile(p, re.IGNORECASE) for p in _HEDGING_PHRASES]
 
+# ─── Fast regex complexity pre-check ─────────────────────────────────────────
+
+import re as _re
+
+_SIMPLE_RE = _re.compile(
+    r"^(who|what is|what are|when|where|define|list|how many|show me|name)\b",
+    _re.IGNORECASE,
+)
+
+
+def _is_trivially_simple(query: str) -> bool:
+    q = query.strip()
+    return bool(_SIMPLE_RE.match(q)) or len(q.split()) < 8
+
 QueryComplexity = Literal["simple", "complex"]
 
 _client = None

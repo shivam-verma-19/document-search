@@ -73,3 +73,44 @@ Configurable cross-encoder model (`BAAI/bge-reranker-base` or `cross-encoder/ms-
 
 ### 🌐 HyDE (Hypothetical Document Embeddings)
 HyDE query expansion generates a hypothetical answer via Gemini before embedding for dense vector search, coupled with BM25 keyword search and RRF fusion.
+
+## Local development
+
+The API allows browser requests from `http://localhost:3000` and
+`http://127.0.0.1:3000` by default. For another frontend origin, set
+`CORS_ALLOWED_ORIGINS` to a comma-separated list of exact origins, including
+the scheme and port when applicable.
+
+## Authentication
+
+The website uses Cognito Managed Login with OAuth authorization code + PKCE.
+Visitors can create their own accounts; Cognito verifies the required email
+address for confirmation and password recovery, while sign-in uses the chosen
+username. The frontend keeps access and refresh tokens in HttpOnly cookies and
+proxies API requests server-side, so browser JavaScript does not handle tokens.
+Access tokens last 60 minutes and refresh tokens last 30 days. Sign out clears
+the app session and the Cognito hosted-login session.
+
+For local development, copy `frontend/.env.example` to `frontend/.env.local` and
+set the values from Terraform:
+
+```text
+AUTH_BASE_URL=http://localhost:3000
+COGNITO_DOMAIN=<terraform output cognito_domain>
+COGNITO_CLIENT_ID=<terraform output cognito_client_id>
+RAG_API_URL=http://localhost:8000
+```
+
+`AUTH_BASE_URL` must exactly match the `frontend_origin` used by Terraform. For
+production, set it to the HTTPS website origin, deploy/apply Terraform with
+`-var="frontend_origin=https://your-site.example"`, and use the same origin in
+the frontend environment. The Terraform Cognito client registers
+`/api/auth/callback` and the site root as its callback and sign-out URLs.
+API Gateway CORS is configured for this exact frontend origin.
+
+The user pool accepts public self-registration and uses username as the
+sign-in name. A Cognito pre-sign-up Lambda requires a valid email without
+changing the existing pool's immutable schema; Cognito then sends its email
+confirmation code. Existing accounts without an email will need an
+administrator to add and verify one before they can use self-service password
+recovery. Do not set `AUTH_DISABLED=true` in a deployed backend.

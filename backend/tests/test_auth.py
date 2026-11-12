@@ -67,6 +67,64 @@ class TestVerifyToken:
         result = auth_mod.verify_token(creds)
         assert result == "user-id"
 
+    def test_accepts_access_token_for_configured_client(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from types import SimpleNamespace
+
+        import backend.app.auth as auth_mod
+
+        monkeypatch.setenv("AUTH_DISABLED", "false")
+        monkeypatch.setenv("COGNITO_CLIENT_ID", "app-client-id")
+        client = MagicMock()
+        client.get_signing_key_from_jwt.return_value = "signing-key"
+        monkeypatch.setattr(auth_mod, "JWK_CLIENT", client)
+        claims = {
+            "token_use": "access",
+            "client_id": "app-client-id",
+            "sub": "user-id",
+        }
+
+        with patch(
+            "backend.app.config.get_settings",
+            return_value=SimpleNamespace(
+                aws_region="ap-south-1", cognito_user_pool_id="pool-id"
+            ),
+        ), patch("backend.app.auth.jwt.decode", return_value=claims) as decode:
+            result = auth_mod.verify_token("access-token")
+
+        assert result == claims
+        decode.assert_called_once_with(
+            "access-token",
+            "signing-key",
+            algorithms=["RS256"],
+            issuer="https://cognito-idp.ap-south-1.amazonaws.com/pool-id",
+            options={"verify_aud": False},
+        )
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            {"token_use": "id", "aud": "app-client-id"},
+            {"token_use": "access", "client_id": "another-client"},
+        ],
+    )
+    def test_rejects_non_access_tokens_or_wrong_client(self, monkeypatch, claims):
+        from unittest.mock import MagicMock, patch
+
+        import backend.app.auth as auth_mod
+
+        monkeypatch.setenv("AUTH_DISABLED", "false")
+        monkeypatch.setenv("COGNITO_CLIENT_ID", "app-client-id")
+        client = MagicMock()
+        client.get_signing_key_from_jwt.return_value = "signing-key"
+        monkeypatch.setattr(auth_mod, "JWK_CLIENT", client)
+
+        with patch("backend.app.auth.jwt.decode", return_value=claims):
+            with pytest.raises(HTTPException) as exc:
+                auth_mod.verify_token("some-token")
+
+        assert exc.value.status_code == 401
+
 
 class TestVerifyCognitoToken:
     def test_no_credentials_raises_401(self):
@@ -116,6 +174,23 @@ class TestOptionalAuth:
 
 
 class TestCognitoJWKClient:
+    def test_jwks_are_cached(self):
+        from unittest.mock import MagicMock, patch
+
+        import backend.app.auth as auth_mod
+
+        client = auth_mod.CognitoJWKClient("https://example.com/jwks.json")
+        response = MagicMock()
+        response.json.return_value = {"keys": []}
+        with patch("backend.app.auth.requests.get", return_value=response) as get:
+            assert client._get_jwks() == {"keys": []}
+            assert client._get_jwks() == {"keys": []}
+
+        get.assert_called_once_with(
+            "https://example.com/jwks.json",
+            timeout=(3, 5),
+        )
+
     def test_missing_kid_raises(self):
         from unittest.mock import MagicMock, patch
 
@@ -136,5 +211,5 @@ class TestCognitoJWKClient:
         with patch(
             "backend.app.auth.jwt.get_unverified_header", return_value={"kid": "abc"}
         ), patch.object(client, "_get_jwks", return_value={"keys": [{"kid": "other"}]}):
-            with pytest.raises(Exception, match="Unable to find kid"):
+            with pytest.raises(Exception, match="Unable to find the token signing key"):
                 client.get_signing_key_from_jwt("tok")

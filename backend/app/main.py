@@ -4,7 +4,8 @@ import os
 import sys
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from mangum import Mangum
 from slowapi import Limiter
@@ -22,7 +23,7 @@ logging.basicConfig(
 
 from backend.app import ingest
 
-from .auth import optional_auth, verify_cognito_token, verify_token
+from .auth import verify_token
 from .config import get_settings
 from .errors import ErrorResponse, RAGException
 from .metrics import get_metrics
@@ -67,29 +68,44 @@ app.state.limiter = limiter
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        try:
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
+        request.state.auth_user = None
+        request.state.auth_error = None
+        request.state.user_id = "anonymous"
+
+        auth_header = request.headers.get("Authorization", "")
+        scheme, _, token = auth_header.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            try:
                 user = verify_token(token)
-                if isinstance(user, str):
-                    request.state.user_id = user
-                else:
-                    request.state.user_id = (
-                        user.get("sub")
-                        or user.get("email")
-                        or user.get("user_id")
-                        or "anonymous"
-                    )
+            except HTTPException as exc:
+                if exc.status_code != 401:
+                    raise
+                request.state.auth_error = exc
             else:
-                request.state.user_id = "anonymous"
-        except Exception:
-            request.state.user_id = "anonymous"
+                request.state.auth_user = user
+                request.state.user_id = (
+                    user if isinstance(user, str) else user.get("sub", "anonymous")
+                )
+
         return await call_next(request)
 
 
 app.add_middleware(AuthMiddleware)
 app.add_middleware(SlowAPIMiddleware)
+cors_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -100,6 +116,20 @@ def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 
+def get_current_user(request: Request):
+    if request.state.auth_error is not None:
+        raise request.state.auth_error
+    if request.state.auth_user is not None:
+        return request.state.auth_user
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def get_user_id(user) -> str:
+    if isinstance(user, str):
+        return user
+    return user.get("sub", "")
+
+
 @app.get("/")
 def root():
     return {"status": "running"}
@@ -107,12 +137,12 @@ def root():
 
 @limiter.limit("5/minute")
 @app.post("/upload")
-async def upload(request: Request, file: UploadFile, user=Depends(optional_auth)):
-    if isinstance(user, str):
-        user_id = user
-    else:
-        user_id = user.get("sub") or user.get("email") or "anonymous"
-
+async def upload(
+    request: Request,
+    file: UploadFile,
+    user=Depends(get_current_user),
+):
+    user_id = get_user_id(user)
     key = await asyncio.to_thread(ingest.upload_file_to_s3, file, user_id)
     await asyncio.to_thread(ingest.enqueue_file, key, user_id)
     return {"message": "queued", "key": key}
@@ -128,14 +158,10 @@ def ask(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     section: Optional[str] = Query(default=None),
-    user: dict = Depends(verify_cognito_token),
+    user=Depends(get_current_user),
 ):
-    user_id = (
-        user
-        if isinstance(user, str)
-        else (user.get("sub") or user.get("email") or "anonymous")
-    )
-    filters = {}
+    user_id = get_user_id(user)
+    filters = {"user_id": user_id}
     if file_type:
         filters["file_type"] = file_type
     if date_from:
@@ -166,7 +192,7 @@ async def ask_stream(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     section: Optional[str] = Query(default=None),
-    user: dict = Depends(verify_cognito_token),
+    user=Depends(get_current_user),
 ):
     """
     Streaming ask — returns tokens via Server-Sent Events as they arrive.
@@ -180,12 +206,8 @@ async def ask_stream(
           output.textContent += e.data.replace(/\\\\n/g, '\\n');
         };
     """
-    user_id = (
-        user
-        if isinstance(user, str)
-        else (user.get("sub") or user.get("email") or "anonymous")
-    )
-    filters = {}
+    user_id = get_user_id(user)
+    filters = {"user_id": user_id}
     if file_type:
         filters["file_type"] = file_type
     if date_from:
@@ -219,15 +241,11 @@ async def ask_stream(
 def delete_session(
     request: Request,
     session_id: str,
-    user: dict = Depends(verify_cognito_token),
+    user=Depends(get_current_user),
 ):
     from .session_service import clear_session
 
-    user_id = (
-        user
-        if isinstance(user, str)
-        else (user.get("sub") or user.get("email") or "anonymous")
-    )
+    user_id = get_user_id(user)
     cleared = clear_session(user_id, session_id)
     return {"cleared": cleared, "session_id": session_id}
 
@@ -237,9 +255,9 @@ def delete_session(
 def summary(
     request: Request,
     doc_id: str = Query(..., min_length=1, max_length=100),
-    user: dict = Depends(verify_cognito_token),
+    user=Depends(get_current_user),
 ):
-    return {"summary": summarize_doc(doc_id)}
+    return {"summary": summarize_doc(doc_id, user_id=get_user_id(user))}
 
 
 @limiter.limit("10/minute")
@@ -247,7 +265,7 @@ def summary(
 def delete_document(
     request: Request,
     doc_id: str,
-    user: dict = Depends(verify_cognito_token),
+    user=Depends(get_current_user),
 ):
     """
     Delete a document from the vector store.
@@ -255,14 +273,17 @@ def delete_document(
     """
     from .s3_vectors_client import delete_document as _delete
 
-    result = _delete(doc_id)
+    user_id = get_user_id(user)
+    result = _delete(doc_id, user_id=user_id)
+    if result["result"] == "not_found":
+        raise HTTPException(status_code=404, detail="Document not found")
     return {"message": "deleted", "doc_id": doc_id, "result": result}
 
 
 @limiter.limit("30/minute")
 @app.get("/metrics")
-def metrics(request: Request, user: dict = Depends(verify_cognito_token)):
-    return get_metrics()
+def metrics(request: Request, user=Depends(get_current_user)):
+    return get_metrics(user_id=get_user_id(user))
 
 
 @limiter.limit("10/minute")
@@ -270,7 +291,7 @@ def metrics(request: Request, user: dict = Depends(verify_cognito_token)):
 def eval_records(
     request: Request,
     window_hours: int = Query(default=24, ge=1, le=720),
-    user: dict = Depends(verify_cognito_token),
+    user=Depends(get_current_user),
 ):
     """
     Return eval records (faithfulness, relevance, recall@k, MRR) for the
@@ -279,7 +300,10 @@ def eval_records(
     """
     from .eval import get_eval_records
 
-    records = get_eval_records(window_seconds=window_hours * 3600)
+    records = get_eval_records(
+        window_seconds=window_hours * 3600,
+        user_id=get_user_id(user),
+    )
     return {"records": records, "count": len(records), "window_hours": window_hours}
 
 

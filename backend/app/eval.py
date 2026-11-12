@@ -279,30 +279,32 @@ def log_eval(
     query: str,
     retrieval: RetrievalMetrics,
     answer: AnswerMetrics,
+    user_id: str | None = None,
 ) -> None:
     """
     Persist RAGAS metrics to DynamoDB and publish to CloudWatch.
     """
     record = EvalRecord(query=query, retrieval=retrieval, answer=answer)
+    item = {
+        "id": record.id,
+        "query": record.query[:500],
+        "timestamp": record.timestamp,
+        "ttl": record.ttl,
+        "recall_at_k": str(round(retrieval.recall_at_k, 4)),
+        "mrr": str(round(retrieval.mrr, 4)),
+        "context_precision": str(round(retrieval.context_precision, 4)),
+        "context_recall": str(round(retrieval.context_recall, 4)),
+        "retrieved_count": retrieval.retrieved_count,
+        "relevant_count": retrieval.relevant_count,
+        "faithfulness": str(round(answer.faithfulness, 4)),
+        "relevance": str(round(answer.relevance, 4)),
+        "llm_judged": answer.llm_judged,
+    }
+    if user_id:
+        item["user_id"] = user_id
 
     try:
-        _get_table().put_item(
-            Item={
-                "id": record.id,
-                "query": record.query[:500],
-                "timestamp": record.timestamp,
-                "ttl": record.ttl,
-                "recall_at_k": str(round(retrieval.recall_at_k, 4)),
-                "mrr": str(round(retrieval.mrr, 4)),
-                "context_precision": str(round(retrieval.context_precision, 4)),
-                "context_recall": str(round(retrieval.context_recall, 4)),
-                "retrieved_count": retrieval.retrieved_count,
-                "relevant_count": retrieval.relevant_count,
-                "faithfulness": str(round(answer.faithfulness, 4)),
-                "relevance": str(round(answer.relevance, 4)),
-                "llm_judged": answer.llm_judged,
-            }
-        )
+        _get_table().put_item(Item=item)
     except ClientError as e:
         logger.warning("Eval DynamoDB write failed: %s", e)
     except Exception as e:
@@ -321,21 +323,26 @@ def log_eval(
         logger.debug("Eval CloudWatch push failed: %s", e)
 
 
-def get_eval_records(window_seconds: int = 7 * 24 * 3600) -> list[dict]:
+def get_eval_records(
+    window_seconds: int = 7 * 24 * 3600,
+    user_id: str | None = None,
+) -> list[dict]:
     """Return eval records from the last window_seconds for dashboard reporting."""
     from boto3.dynamodb.conditions import Attr
 
     since = int(time.time()) - window_seconds
     items: list[dict] = []
+    filter_expression = Attr("timestamp").gte(since)
+    if user_id:
+        filter_expression = filter_expression & Attr("user_id").eq(user_id)
+
     try:
-        response = _get_table().scan(
-            FilterExpression=Attr("timestamp").gte(since),
-        )
+        response = _get_table().scan(FilterExpression=filter_expression)
         items.extend(response.get("Items", []))
         last_key = response.get("LastEvaluatedKey")
         while last_key:
             response = _get_table().scan(
-                FilterExpression=Attr("timestamp").gte(since),
+                FilterExpression=filter_expression,
                 ExclusiveStartKey=last_key,
             )
             items.extend(response.get("Items", []))

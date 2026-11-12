@@ -23,20 +23,21 @@ def _get_table():
     return _table
 
 
-def log_metrics(query, latency, source):
-    _get_table().put_item(
-        Item={
-            "id": str(uuid.uuid4()),
-            "query": query,
-            "timestamp": int(time.time()),  # FIX: store as int, not str
-            "latency": latency,
-            "source": source,
-        }
-    )
+def log_metrics(query, latency, source, user_id: str | None = None):
+    item = {
+        "id": str(uuid.uuid4()),
+        "query": query,
+        "timestamp": int(time.time()),
+        "latency": latency,
+        "source": source,
+    }
+    if user_id:
+        item["user_id"] = user_id
+    _get_table().put_item(Item=item)
     push_metric("QueryLatency", latency, unit="Milliseconds")
 
 
-def get_metrics(window_seconds: int | None = None):
+def get_metrics(window_seconds: int | None = None, user_id: str | None = None):
     if window_seconds is None:
         window_seconds = _METRICS_WINDOW_SECONDS
 
@@ -45,10 +46,14 @@ def get_metrics(window_seconds: int | None = None):
     items = []
 
     try:
+        filter_expression = Attr("timestamp").gte(since)
+        if user_id:
+            filter_expression = filter_expression & Attr("user_id").eq(user_id)
+
         response = _get_table().scan(
-            ProjectionExpression="id, query, #ts, latency, source",
-            FilterExpression=Attr("timestamp").gte(since),
-            ExpressionAttributeNames={"#ts": "timestamp"},  # timestamp is reserved
+            ProjectionExpression="id, query, #ts, latency, source, user_id",
+            FilterExpression=filter_expression,
+            ExpressionAttributeNames={"#ts": "timestamp"},
         )
 
         items.extend(response.get("Items", []))
@@ -57,8 +62,8 @@ def get_metrics(window_seconds: int | None = None):
 
         while last_evaluated_key:
             response = _get_table().scan(
-                ProjectionExpression="id, query, #ts, latency, source",
-                FilterExpression=Attr("timestamp").gte(since),
+                ProjectionExpression="id, query, #ts, latency, source, user_id",
+                FilterExpression=filter_expression,
                 ExpressionAttributeNames={"#ts": "timestamp"},
                 ExclusiveStartKey=last_evaluated_key,
             )

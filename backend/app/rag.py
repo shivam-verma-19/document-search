@@ -146,7 +146,9 @@ def _build_rag_prompt(
 # ─── Background eval helper ───────────────────────────────────────────────────
 
 
-def _run_eval_async(query: str, context: str, answer: str, docs: list) -> None:
+def _run_eval_async(
+    query: str, context: str, answer: str, docs: list, user_id: str
+) -> None:
     """
     Fire-and-forget eval after a successful RAG answer.
     Runs in a thread so it never delays the response to the user.
@@ -160,7 +162,7 @@ def _run_eval_async(query: str, context: str, answer: str, docs: list) -> None:
 
             retrieval_metrics = evaluate_retrieval(query, docs)
             answer_metrics = evaluate_answer(query, context, answer)
-            log_eval(query, retrieval_metrics, answer_metrics)
+            log_eval(query, retrieval_metrics, answer_metrics, user_id=user_id)
         except Exception as e:
             logger.debug(f"Background eval failed (non-fatal): {e}")
 
@@ -184,6 +186,7 @@ def ask_question(
         return "Please provide a question."
 
     query = query.strip()
+    filters = {**(filters or {}), "user_id": user_id}
 
     if _is_forbidden(query):
         logger.warning(f"Forbidden query pattern: {query[:50]}...")
@@ -254,10 +257,10 @@ def ask_question(
                 confidence, escalated=False, path="success", source="rag"
             )
             try:
-                metrics.log_metrics(query, elapsed_ms, "rag")
+                metrics.log_metrics(query, elapsed_ms, "rag", user_id=user_id)
             except Exception as e:
                 logger.warning(f"Metrics logging failed: {e}")
-            _run_eval_async(query, context_plain, answer, docs)
+            _run_eval_async(query, context_plain, answer, docs, user_id)
             return answer
 
     logger.info(f"Falling back to LLM-only (found {len(docs)} docs)")
@@ -284,10 +287,10 @@ def ask_question(
         logger.info(f"Fallback response generated in {elapsed_ms:.0f}ms")
         emit_confidence_metric(0.5, escalated=False, path="fallback", source="llm")
         try:
-            metrics.log_metrics(query, elapsed_ms, "llm")
+            metrics.log_metrics(query, elapsed_ms, "llm", user_id=user_id)
         except Exception as e:
             logger.warning(f"Metrics logging failed: {e}")
-        _run_eval_async(query, "", answer, [])
+        _run_eval_async(query, "", answer, [], user_id)
         return answer
 
     logger.error(
@@ -325,6 +328,7 @@ def ask_question_stream(
         return
 
     query = query.strip()
+    filters = {**(filters or {}), "user_id": user_id}
 
     if _is_forbidden(query):
         yield "data: This query is not allowed.\n\n"
@@ -425,16 +429,18 @@ def ask_question_stream(
         elapsed_ms = Decimal(str(elapsed_ms))
         source_label = "rag" if docs else "llm"
         try:
-            metrics.log_metrics(query, elapsed_ms, f"{source_label}_stream")
+            metrics.log_metrics(
+                query, elapsed_ms, f"{source_label}_stream", user_id=user_id
+            )
         except Exception:
             pass
-        _run_eval_async(query, context_plain, full_answer, docs)
+        _run_eval_async(query, context_plain, full_answer, docs, user_id)
 
 
 # ─── Summarize ────────────────────────────────────────────────────────────────
 
 
-def summarize_doc(doc_id: str) -> str:
+def summarize_doc(doc_id: str, user_id: str | None = None) -> str:
     from . import utils
 
     if not doc_id or not doc_id.strip():
@@ -455,6 +461,15 @@ def summarize_doc(doc_id: str) -> str:
 
     if not docs:
         return f"No documents found for ID: {doc_id}"
+
+    if user_id is not None:
+        docs = [
+            doc
+            for doc in docs
+            if doc.get("_source", {}).get("metadata", {}).get("user_id") == user_id
+        ]
+        if not docs:
+            return f"No documents found for ID: {doc_id}"
 
     context = "\n".join(d.get("_source", {}).get("text", "") for d in docs)
     if not context.strip():

@@ -27,12 +27,16 @@ def _block_embedding(seconds: int = 60) -> None:
 
 # ─── RRF fusion ───────────────────────────────────────────────────────────────
 
+# k=10 (tunable via RRF_K) gives stronger top-rank preference for small RAG corpora (5-20 candidates),
+# whereas k=60 was designed for web search over hundreds of documents.
+RRF_K = int(os.getenv("RRF_K", "10"))
+
 
 def _reciprocal_rank_fusion(
     list1: List[SearchDocument],
     list2: List[SearchDocument],
     k: int = 5,
-    rrf_k: int = 60,
+    rrf_k: int = RRF_K,
 ) -> List[SearchDocument]:
     """
     Combine two ranked lists using Reciprocal Rank Fusion.

@@ -21,7 +21,12 @@ import os
 import re
 from typing import List
 
-from .gemini_client import GEMINI_MODEL, _get_client, classify_complexity
+from .gemini_client import (
+    GEMINI_MODEL,
+    _get_client,
+    _is_trivially_simple,
+    classify_complexity,
+)
 
 logger = logging.getLogger(__name__)
 

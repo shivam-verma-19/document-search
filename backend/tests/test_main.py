@@ -32,15 +32,21 @@ class TestMainRoutes:
         monkeypatch.setattr(
             "backend.app.rag.ask_question", lambda q, *a, **kw: "mock answer"
         )
-        monkeypatch.setattr("backend.app.rag.summarize_doc", lambda d: "mock summary")
+        monkeypatch.setattr(
+            "backend.app.rag.summarize_doc",
+            lambda d, user_id=None: "mock summary",
+        )
         monkeypatch.setattr(
             "backend.app.ingest.upload_file_to_s3", lambda f, u: "user/file.txt"
         )
         monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k, u=None: None)
-        monkeypatch.setattr("backend.app.metrics.get_metrics", lambda: [{"id": "1"}])
+        monkeypatch.setattr(
+            "backend.app.metrics.get_metrics",
+            lambda user_id=None: [{"id": "1"}],
+        )
         monkeypatch.setattr(
             "backend.app.s3_vectors_client.delete_document",
-            lambda doc_id: {"result": "deleted", "_id": doc_id},
+            lambda doc_id, user_id=None: {"result": "deleted", "_id": doc_id},
         )
 
         import backend.app.main as main_mod
@@ -56,6 +62,19 @@ class TestMainRoutes:
         resp = client.get("/")
         assert resp.status_code == 200
         assert resp.json()["status"] == "running"
+
+    def test_ask_preflight_allows_local_frontend(self, client):
+        resp = client.options(
+            "/ask?q=ACP%3F",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+        assert "authorization" in resp.headers["access-control-allow-headers"].lower()
 
     def test_ask_requires_query_param(self, client):
         resp = client.get("/ask", headers={"Authorization": "Bearer fake"})
@@ -114,3 +133,10 @@ class TestMainRoutes:
         )
         assert resp.status_code == 200
         assert resp.json()["message"] == "queued"
+
+    def test_upload_requires_authentication(self, client):
+        resp = client.post(
+            "/upload",
+            files={"file": ("test.txt", b"hello", "text/plain")},
+        )
+        assert resp.status_code == 401

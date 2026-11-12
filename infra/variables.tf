@@ -8,6 +8,12 @@ variable "project_name" {
   default     = "rag-platform"
 }
 
+variable "frontend_origin" {
+  description = "Frontend origin allowed for Cognito callbacks and API CORS"
+  type        = string
+  default     = "http://localhost:3000"
+}
+
 variable "s3_bucket_name" {
   description = "S3 bucket for uploads"
   default     = "rag-pipeline-upload-bucket"

@@ -1,11 +1,13 @@
 import logging
 import os
+import threading
+import time
 from typing import Union
 
 import requests
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jose import JWTError, jwk, jwt
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -17,43 +19,54 @@ _JWK_CLIENT_INITIALISED = False
 
 
 class CognitoJWKClient:
-    """Simple JWK client for Cognito."""
+    """Fetch and cache Cognito signing keys."""
 
-    def __init__(self, jwks_url: str):
+    def __init__(self, jwks_url: str, cache_ttl: int = 3600):
         self.jwks_url = jwks_url
+        self._cache_ttl = cache_ttl
         self._jwks_cache = None
+        self._cache_expires_at = 0.0
+        self._cache_lock = threading.Lock()
 
-    def _get_jwks(self):
-        try:
-            resp = requests.get(self.jwks_url)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            logger.error(f"Failed to fetch JWKS: {e}")
-            raise
+    def _get_jwks(self, force_refresh: bool = False):
+        with self._cache_lock:
+            if (
+                not force_refresh
+                and self._jwks_cache is not None
+                and time.monotonic() < self._cache_expires_at
+            ):
+                return self._jwks_cache
+
+            try:
+                resp = requests.get(self.jwks_url, timeout=(3, 5))
+                resp.raise_for_status()
+                jwks = resp.json()
+            except (requests.RequestException, ValueError) as exc:
+                logger.error("Failed to fetch Cognito JWKS: %s", exc)
+                raise
+
+            self._jwks_cache = jwks
+            self._cache_expires_at = time.monotonic() + self._cache_ttl
+            return jwks
 
     def get_signing_key_from_jwt(self, token: str):
         try:
-            from jose import jwk
-
             unverified_header = jwt.get_unverified_header(token)
             kid = unverified_header.get("kid")
-
             if not kid:
-                raise ValueError("Token missing 'kid' in header")
+                raise JWTError("Token missing 'kid' in header")
+        except JWTError:
+            raise
 
-            jwks = self._get_jwks()
-
+        for force_refresh in (False, True):
+            jwks = self._get_jwks(force_refresh=force_refresh)
             for key_data in jwks.get("keys", []):
                 if key_data.get("kid") == kid:
                     return jwk.construct(
                         key_data, algorithm=key_data.get("alg", "RS256")
                     )
 
-            raise ValueError(f"Unable to find kid '{kid}' in JWKS")
-        except Exception as e:
-            logger.error(f"Failed to get signing key from JWT: {e}")
-            raise
+        raise JWTError("Unable to find the token signing key")
 
 
 def _get_jwk_client():
@@ -118,17 +131,46 @@ def verify_token(
     try:
         signing_key = client.get_signing_key_from_jwt(token)
 
+        client_id = os.getenv("COGNITO_CLIENT_ID")
+        if not client_id:
+            from .config import get_settings
+
+            client_id = get_settings().cognito_client_id
+        if not client_id:
+            logger.error("COGNITO_CLIENT_ID is not configured")
+            raise HTTPException(status_code=500, detail="Auth provider not configured")
+
+        from .config import get_settings
+
+        settings = get_settings()
+        issuer = (
+            f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
+            f"{settings.cognito_user_pool_id}"
+        )
         claims = jwt.decode(
             token,
             signing_key,
             algorithms=["RS256"],
-            audience=os.getenv("COGNITO_CLIENT_ID"),
+            issuer=issuer,
+            options={"verify_aud": False},
         )
+
+        if (
+            claims.get("token_use") != "access"
+            or claims.get("client_id") != client_id
+            or not claims.get("sub")
+        ):
+            raise JWTError("Invalid Cognito access token")
 
         return claims
 
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Unauthorized") from exc
+    except (requests.RequestException, ValueError) as exc:
+        logger.error("Cognito signing keys are unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Authentication provider unavailable"
+        ) from exc
 
 
 def verify_cognito_token(

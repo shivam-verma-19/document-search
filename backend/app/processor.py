@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 import os
 import time
@@ -15,6 +16,13 @@ from .chunker import chunk_text
 from .config import get_settings
 from .embeddings import get_embedding
 from .s3_vectors_client import index_document
+
+
+def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
+    """Embed multiple texts concurrently using ThreadPoolExecutor."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(get_embedding, text) for text in texts]
+        return [f.result() for f in futures]
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -119,7 +127,9 @@ def _download_from_s3(bucket: str, key: str) -> bytes:
     return obj["Body"].read()
 
 
-def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[str]]:
+def _chunk_and_embed(
+    text: str, key: str
+) -> tuple[list[Document], str, list[dict]]:
     """Return (chunks, doc_base_id, chunk_texts)."""
     filename = key.split("/")[-1]
     doc_base_id = str(uuid.uuid4())
@@ -136,28 +146,47 @@ def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[str
         "upload_date": upload_date,
     }
     chunks = chunk_text(text, source_metadata=source_metadata)
-    new_texts: list[str] = []
+    new_texts: list[dict] = []
     langchain_docs: list[Document] = []
 
+    # Build embed texts with section header injection for richer vector context
+    embed_texts: list[str] = []
     for chunk in chunks:
+        section_header = chunk.metadata.get("section_header", "")
+        if section_header:
+            embed_text = f"[Section: {section_header}]\n{chunk.text}"
+        else:
+            embed_text = chunk.text
+        embed_texts.append(embed_text)
+
+    # Batch embed all chunks concurrently
+    embeddings = get_embeddings_batch(embed_texts)
+
+    for chunk, embedding in zip(chunks, embeddings):
         chunk_doc_id = f"{doc_base_id}#{chunk.metadata['chunk_index']}"
-        embedding = get_embedding(chunk.text)
+        metadata = {
+            "user_id": user_id,
+            "chunk_index": chunk.metadata["chunk_index"],
+            "doc_base_id": doc_base_id,
+            "filename": filename,
+            "s3_key": key,
+            "file_type": file_type,
+            "upload_date": upload_date,
+            "section_header": chunk.metadata.get("section_header", "General"),
+        }
         index_document(
             doc_id=chunk_doc_id,
             text=chunk.text,
             embedding=embedding,
-            metadata={
-                "user_id": user_id,
-                "chunk_index": chunk.metadata["chunk_index"],
-                "doc_base_id": doc_base_id,
-                "filename": filename,
-                "s3_key": key,
-                "file_type": file_type,
-                "upload_date": upload_date,
-                "section_header": chunk.metadata.get("section_header", "General"),
-            },
+            metadata=metadata,
         )
-        new_texts.append(chunk.text)
+        new_texts.append(
+            {
+                "doc_id": chunk_doc_id,
+                "text": chunk.text,
+                "metadata": {"user_id": user_id},
+            }
+        )
         langchain_docs.append(Document(page_content=chunk.text))
 
     return langchain_docs, doc_base_id, new_texts

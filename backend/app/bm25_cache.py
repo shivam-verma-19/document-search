@@ -24,7 +24,7 @@ def _table():
 
 
 # ── In-process warm cache (avoids DynamoDB hit on every Lambda invocation) ────
-_warm_corpus: list[str] | None = None
+_warm_corpus: list[dict] | None = None
 _warm_loaded_at: float = 0.0
 _warm_version: int = 0
 _WARM_TTL = 300  # re-fetch from DynamoDB every 5 minutes at most
@@ -37,19 +37,39 @@ def invalidate_warm_cache() -> None:
     _warm_loaded_at = 0.0
 
 
-def get_corpus() -> list[str]:
+def _normalize_document(document: str | dict) -> dict:
+    if isinstance(document, str):
+        return {"text": document, "metadata": {}}
+    if not isinstance(document, dict):
+        raise ValueError("Invalid BM25 corpus entry")
+
+    text = document.get("text", "")
+    metadata = document.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    normalized = {"text": str(text), "metadata": metadata}
+    if document.get("doc_id"):
+        normalized["doc_id"] = str(document["doc_id"])
+    return normalized
+
+
+def get_corpus() -> list[dict]:
     """Return cached corpus. Falls back to empty list if cache miss."""
     global _warm_corpus, _warm_loaded_at, _warm_version
 
     now = time.time()
     if _warm_corpus is not None and (now - _warm_loaded_at) < _WARM_TTL:
+        _warm_corpus = [_normalize_document(document) for document in _warm_corpus]
         return _warm_corpus
 
     try:
         resp = _table().get_item(Key={"pk": _CORPUS_KEY})
         item = resp.get("Item")
         if item:
-            corpus = json.loads(str(item.get("texts", "[]")))
+            stored_corpus = json.loads(str(item.get("texts", "[]")))
+            if not isinstance(stored_corpus, list):
+                raise ValueError("BM25 corpus must be a JSON list")
+            corpus = [_normalize_document(document) for document in stored_corpus]
             _warm_corpus = corpus
             _warm_loaded_at = now
             version_value = item.get("version", 0)
@@ -70,20 +90,21 @@ def get_corpus() -> list[str]:
     return []
 
 
-def set_corpus(texts: list[str]) -> None:
+def set_corpus(texts: list[str | dict]) -> None:
     """Persist corpus after ingest. Called by processor.py, not by search."""
     global _warm_corpus, _warm_loaded_at, _warm_version
-    new_version = _warm_version + 1  # FIX: always increment version on full replace
+    corpus = [_normalize_document(document) for document in texts]
+    new_version = _warm_version + 1
     try:
         _table().put_item(
             Item={
                 "pk": _CORPUS_KEY,
-                "texts": json.dumps(texts),
+                "texts": json.dumps(corpus),
                 "version": new_version,
                 "ttl": int(time.time()) + _TTL_SECONDS,
             }
         )
-        _warm_corpus = texts
+        _warm_corpus = corpus
         _warm_loaded_at = time.time()
         _warm_version = new_version
         logger.info(f"BM25 corpus cached: {len(texts)} docs")
@@ -91,7 +112,7 @@ def set_corpus(texts: list[str]) -> None:
         logger.warning(f"BM25 corpus cache write failed: {e}")
 
 
-def append_to_corpus(new_texts: list[str]) -> None:
+def append_to_corpus(new_texts: list[str | dict]) -> None:
     """Add newly ingested chunks to the corpus with optimistic locking.
 
     Uses versioning to prevent data loss under concurrent writes.
@@ -102,12 +123,14 @@ def append_to_corpus(new_texts: list[str]) -> None:
     if not new_texts:
         return
 
+    normalized_new_texts = [_normalize_document(document) for document in new_texts]
+
     for attempt in range(_MAX_RETRIES):
         try:
             current = get_corpus()
             current_version = _warm_version
 
-            updated = current + new_texts
+            updated = current + normalized_new_texts
             new_version = current_version + 1
 
             condition = "attribute_not_exists(#v) OR #v = :expected_version"
@@ -128,7 +151,7 @@ def append_to_corpus(new_texts: list[str]) -> None:
             _warm_loaded_at = time.time()
             _warm_version = new_version
             logger.debug(
-                f"BM25 corpus appended: +{len(new_texts)} docs (v{current_version} → v{new_version})"
+                f"BM25 corpus appended: +{len(normalized_new_texts)} docs (v{current_version} → v{new_version})"
             )
             return
 

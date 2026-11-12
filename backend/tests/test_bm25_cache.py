@@ -15,12 +15,16 @@ def _reset():
     m._dynamodb = None
 
 
+def _document(text, metadata=None):
+    return {"text": text, "metadata": metadata or {}}
+
+
 class TestGetCorpus:
     def test_returns_warm_cache_when_fresh(self):
         _reset()
         m._warm_corpus = ["doc1", "doc2"]
         m._warm_loaded_at = time.time()
-        assert m.get_corpus() == ["doc1", "doc2"]
+        assert m.get_corpus() == [_document("doc1"), _document("doc2")]
 
     def test_fetches_from_dynamo_on_cold_cache(self):
         _reset()
@@ -33,7 +37,7 @@ class TestGetCorpus:
             # _table is called as a function, so patch the function itself
             with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
                 result = m.get_corpus()
-        assert result == ["a", "b"]
+        assert result == [_document("a"), _document("b")]
         assert m._warm_version == 3
 
     def test_dynamo_miss_returns_empty_and_warms(self):
@@ -65,7 +69,7 @@ class TestGetCorpus:
         }
         with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
             result = m.get_corpus()
-        assert result == ["new"]
+        assert result == [_document("new")]
 
 
 class TestSetCorpus:
@@ -78,7 +82,7 @@ class TestSetCorpus:
         mock_table.put_item.assert_called_once()
         item = mock_table.put_item.call_args[1]["Item"]
         assert item["version"] == 3
-        assert m._warm_corpus == ["x", "y"]
+        assert m._warm_corpus == [_document("x"), _document("y")]
         assert m._warm_version == 3
 
     def test_dynamo_error_is_swallowed(self):

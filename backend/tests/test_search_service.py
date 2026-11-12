@@ -222,6 +222,37 @@ class TestScoreThreshold:
         assert all(getattr(d, "score", 1.0) >= 0.0 for d in results)
 
 
+class TestTenantScopedKeywordSearch:
+    def test_keyword_results_are_limited_to_the_authenticated_user(self, monkeypatch):
+        import backend.app.bm25_cache as bm25_cache
+        from backend.app.document_repository import HybridDocumentRepository
+
+        monkeypatch.setattr(
+            bm25_cache,
+            "get_corpus",
+            lambda: [
+                {
+                    "text": "shared confidential policy topic",
+                    "doc_id": "doc-a",
+                    "metadata": {"user_id": "user-a"},
+                },
+                {
+                    "text": "shared confidential policy topic",
+                    "doc_id": "doc-b",
+                    "metadata": {"user_id": "user-b"},
+                },
+            ],
+        )
+        repository = HybridDocumentRepository()
+        results = repository.keyword_search(
+            "confidential policy",
+            k=5,
+            filters={"user_id": "user-a"},
+        )
+
+        assert [document.doc_id for document in results] == ["doc-a"]
+
+
 class TestReranking:
     def test_disabled_reranker_preserves_order_and_top_k(self, monkeypatch):
         from backend.app.search_service import rerank_documents

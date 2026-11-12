@@ -83,6 +83,30 @@ class TestSearchDocuments:
         assert len(result) == 1
         assert result[0]["_id"] == "k1"
 
+    def test_user_filter_excludes_other_users_documents(self):
+        _reset()
+        mock_client = MagicMock()
+        mock_client.query_vectors.return_value = {
+            "Vectors": [
+                {
+                    "Key": "a",
+                    "Metadata": {"text": "first", "user_id": "user-a"},
+                },
+                {
+                    "Key": "b",
+                    "Metadata": {"text": "second", "user_id": "user-b"},
+                },
+            ]
+        }
+        with patch.object(m, "_get_client", return_value=mock_client):
+            result = m.search_documents(
+                [0.1] * 768,
+                k=5,
+                filters={"user_id": "user-a"},
+            )
+
+        assert [document["_id"] for document in result] == ["a"]
+
 
 class TestSearchSimilar:
     def test_returns_texts_only(self):
@@ -127,6 +151,46 @@ class TestDeleteDocument:
             result = m.delete_document("base#0")
         mock_client.delete_vectors.assert_called_once()
         assert result["result"] == "deleted"
+        assert result["deleted_count"] == 1
+
+    def test_chunk_delete_is_limited_to_its_owner(self):
+        _reset()
+        mock_client = MagicMock()
+        mock_client.get_vectors.return_value = {
+            "Vectors": [
+                {
+                    "Key": "base#0",
+                    "Metadata": {"user_id": "owner-a"},
+                }
+            ]
+        }
+        with patch.object(m, "_get_client", return_value=mock_client):
+            result = m.delete_document("base#0", user_id="owner-b")
+        mock_client.delete_vectors.assert_not_called()
+        assert result["result"] == "not_found"
+
+    def test_base_document_delete_selects_only_owner_chunks(self):
+        _reset()
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [
+            {
+                "Vectors": [
+                    {"Key": "base#0", "Metadata": {"user_id": "owner-a"}},
+                    {"Key": "base#1", "Metadata": {"user_id": "owner-b"}},
+                ]
+            }
+        ]
+        mock_client.get_paginator.return_value = mock_paginator
+        with patch.object(m, "_get_client", return_value=mock_client):
+            result = m.delete_document("base", user_id="owner-a")
+        mock_paginator.paginate.assert_called_once_with(
+            VectorBucketName=m.VECTOR_BUCKET_NAME,
+            IndexName=m.VECTOR_INDEX_NAME,
+            ReturnMetadata=True,
+        )
+        mock_client.delete_vectors.assert_called_once()
+        assert mock_client.delete_vectors.call_args.kwargs["Keys"] == ["base#0"]
         assert result["deleted_count"] == 1
 
     def test_not_found_returns_not_found(self):

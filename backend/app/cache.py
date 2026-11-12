@@ -1,4 +1,5 @@
 import hashlib
+import re
 import time
 
 import boto3
@@ -9,7 +10,16 @@ table = dynamodb.Table("rag-cache")
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 24 hours
 
 
-def hash_query(q):
+# Semantic / normalized cache helper for optional query normalization
+def normalize_cache_key(q: str) -> str:
+    q = q.lower().strip()
+    q = re.sub(r"[^\w\s]", "", q)  # strip punctuation
+    q = re.sub(r"\s+", " ", q)  # collapse whitespace
+    return q
+
+
+# Exact hash matching on query string (preserves whitespace sensitivity)
+def hash_query(q: str) -> str:
     return hashlib.sha256(q.encode()).hexdigest()
 
 

@@ -1,6 +1,14 @@
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "${var.project_name}-api"
   protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_origins     = [trimsuffix(var.frontend_origin, "/")]
+    allow_methods     = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allow_headers     = ["authorization", "content-type"]
+    allow_credentials = true
+    max_age           = 300
+  }
 }
 
 resource "aws_apigatewayv2_integration" "lambda_integration" {
@@ -50,4 +58,10 @@ resource "aws_apigatewayv2_route" "route" {
 
   authorizer_id      = aws_apigatewayv2_authorizer.cognito_auth.id
   authorization_type = "JWT"
+}
+
+resource "aws_apigatewayv2_route" "health" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "GET /"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }

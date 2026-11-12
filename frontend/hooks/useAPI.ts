@@ -114,7 +114,7 @@ const categorizeError = (error: any): ApiError => {
 export const useApi = (options: UseApiOptions = {}) => {
   const {
     maxRetries = 3,
-    timeoutMs = 5000,
+    timeoutMs = 45000,
     onSuccess,
     onError,
     onRetry,
@@ -234,6 +234,11 @@ export const useApi = (options: UseApiOptions = {}) => {
     [execute]
   );
 
+  const del = useCallback(
+    (url: string, config?: any) => execute("DELETE", url, config),
+    [execute]
+  );
+
   const cancel = useCallback(() => {
     abortControllerRef.current?.abort();
     setState((prev) => ({ ...prev, loading: false }));
@@ -254,6 +259,7 @@ export const useApi = (options: UseApiOptions = {}) => {
     get,
     post,
     put,
+    del,
     cancel,
     reset,
   };

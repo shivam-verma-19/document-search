@@ -24,7 +24,7 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
+MODEL_NAME = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 _model = None
 _tokenizer = None
