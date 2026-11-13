@@ -39,7 +39,7 @@ export default function ChatPage() {
   useEffect(() => {
     let sid = window.localStorage.getItem("rag_session_id");
     if (!sid) {
-      sid = "sess_" + Math.random().toString(36).substring(2, 10);
+      sid = "sess_" + crypto.randomUUID();
       window.localStorage.setItem("rag_session_id", sid);
     }
     setSessionId(sid);
@@ -57,7 +57,7 @@ export default function ChatPage() {
         console.warn("Could not clear session on backend:", err);
       }
     }
-    const newSid = "sess_" + Math.random().toString(36).substring(2, 10);
+    const newSid = "sess_" + crypto.randomUUID();
     setSessionId(newSid);
     window.localStorage.setItem("rag_session_id", newSid);
     setMessages([]);
