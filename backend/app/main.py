@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile
@@ -25,14 +27,22 @@ logging.basicConfig(
 
 from backend.app import ingest
 
-from .auth import verify_token
+from .auth import validate_auth_configuration, verify_token
 from .config import get_settings
 from .errors import ErrorResponse, RAGException, public_error_payload
 from .metrics import get_metrics
 from .rag import ask_question, ask_question_stream, summarize_doc
 
 settings = get_settings()
-app = FastAPI()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    validate_auth_configuration()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # ─── Exception handlers ───────────────────────────────────────────────────────

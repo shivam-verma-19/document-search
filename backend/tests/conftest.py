@@ -22,6 +22,8 @@ from moto import mock_aws
 # ---------------------------------------------------------------------------
 # ENV VARS (before imports)
 # ---------------------------------------------------------------------------
+os.environ["APP_ENV"] = "test"
+os.environ["AUTH_DISABLED"] = "true"
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")

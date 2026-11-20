@@ -63,6 +63,33 @@ class TestMainRoutes:
         assert resp.status_code == 200
         assert resp.json()["status"] == "running"
 
+    def test_startup_fails_when_cognito_configuration_is_missing(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from fastapi.testclient import TestClient
+
+        import backend.app.main as main_mod
+
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("AUTH_DISABLED", "false")
+        monkeypatch.setattr(
+            "backend.app.config.get_settings",
+            lambda: SimpleNamespace(
+                app_env="development",
+                auth_disabled=False,
+                aws_region="",
+                cognito_user_pool_id="",
+                cognito_client_id="",
+            ),
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match="Missing required Cognito configuration",
+        ):
+            with TestClient(main_mod.app):
+                pass
+
     def test_ask_preflight_allows_local_frontend(self, client):
         resp = client.options(
             "/ask?q=ACP%3F",

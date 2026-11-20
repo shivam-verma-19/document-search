@@ -14,6 +14,10 @@ output "api_url" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
 }
 
+output "aws_region" {
+  value = var.aws_region
+}
+
 output "cognito_user_pool_id" {
   value = aws_cognito_user_pool.user_pool.id
 }

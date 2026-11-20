@@ -76,36 +76,74 @@ def _get_jwk_client():
     if _JWK_CLIENT_INITIALISED:
         return _JWK_CLIENT
 
-    _JWK_CLIENT_INITIALISED = True
-
-    if os.getenv("AUTH_DISABLED", "false").lower() == "true":
-        logger.info("Authentication disabled via AUTH_DISABLED=true")
+    validate_auth_configuration()
+    if _auth_disabled():
+        _JWK_CLIENT_INITIALISED = True
+        logger.warning("Authentication disabled for a non-production environment")
         return None
 
     from .config import get_settings
 
     settings = get_settings()
-
-    if not settings.cognito_user_pool_id or not settings.aws_region:
-        logger.error(
-            "Cannot initialise JWK_CLIENT: missing COGNITO_USER_POOL_ID or AWS_REGION. "
-            "Either set these or enable AUTH_DISABLED=true"
-        )
-        return None
-
-    try:
-        jwks_url = (
-            f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
-            f"{settings.cognito_user_pool_id}/.well-known/jwks.json"
-        )
-        _JWK_CLIENT = CognitoJWKClient(jwks_url)
-        logger.info(
-            f"JWK_CLIENT initialised for user pool {settings.cognito_user_pool_id}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to initialise JWK_CLIENT: {e}")
-
+    jwks_url = (
+        f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
+        f"{settings.cognito_user_pool_id}/.well-known/jwks.json"
+    )
+    _JWK_CLIENT = CognitoJWKClient(jwks_url)
+    _JWK_CLIENT_INITIALISED = True
+    logger.info(
+        "Cognito JWK client initialised for user pool %s",
+        settings.cognito_user_pool_id,
+    )
     return _JWK_CLIENT
+
+
+def validate_auth_configuration() -> None:
+    """Fail closed when Cognito is missing or auth is disabled outside dev/test."""
+    from .config import get_settings
+
+    settings = get_settings()
+    app_environment = _app_environment(settings)
+    auth_disabled = _auth_disabled(settings)
+    if auth_disabled:
+        if app_environment not in {"development", "test"}:
+            raise RuntimeError(
+                "AUTH_DISABLED=true is only allowed when APP_ENV is development or test."
+            )
+        return
+
+    missing = [
+        name
+        for name, value in (
+            ("AWS_REGION", settings.aws_region),
+            ("COGNITO_USER_POOL_ID", settings.cognito_user_pool_id),
+            ("COGNITO_CLIENT_ID", settings.cognito_client_id),
+        )
+        if not value or not value.strip()
+    ]
+    if missing:
+        raise RuntimeError(
+            "Missing required Cognito configuration: "
+            + ", ".join(missing)
+            + ". Configure the backend environment before starting the API."
+        )
+
+
+def _app_environment(settings=None) -> str:
+    if settings is None:
+        from .config import get_settings
+
+        settings = get_settings()
+    return os.getenv("APP_ENV", settings.app_env).strip().lower()
+
+
+def _auth_disabled(settings=None) -> bool:
+    if settings is None:
+        from .config import get_settings
+
+        settings = get_settings()
+    configured_value = os.getenv("AUTH_DISABLED", str(settings.auth_disabled))
+    return configured_value.strip().lower() == "true"
 
 
 # Keep module-level alias for backwards compatibility with tests that patch it.
@@ -124,7 +162,7 @@ def verify_token(
     client = JWK_CLIENT or _get_jwk_client()
 
     if not client:
-        if os.getenv("AUTH_DISABLED", "false").lower() == "true":
+        if _auth_disabled():
             return "user-id"
         raise HTTPException(status_code=503, detail="Auth provider not configured")
 
@@ -184,7 +222,7 @@ def verify_cognito_token(
     client = JWK_CLIENT or _get_jwk_client()
 
     if not client:
-        if os.getenv("AUTH_DISABLED", "false").lower() == "true":
+        if _auth_disabled():
             return "user-id"
         raise HTTPException(status_code=503, detail="Auth provider not configured")
 
@@ -202,7 +240,7 @@ def optional_auth(
     client = JWK_CLIENT or _get_jwk_client()
 
     if not client:
-        if os.getenv("AUTH_DISABLED", "false").lower() == "true":
+        if _auth_disabled():
             return "user-id"
         raise HTTPException(status_code=503, detail="Auth provider not configured")
 

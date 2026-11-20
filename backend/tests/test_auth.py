@@ -39,7 +39,7 @@ class TestVerifyToken:
         result = auth_mod.verify_token("any-token")
         assert result == "user-id"
 
-    def test_no_jwk_auth_enabled_raises_500(self, monkeypatch):
+    def test_no_jwk_auth_enabled_raises_503(self, monkeypatch):
         monkeypatch.setenv("AUTH_DISABLED", "false")
         import backend.app.auth as auth_mod
 
@@ -51,7 +51,51 @@ class TestVerifyToken:
         )
         with pytest.raises(HTTPException) as exc:
             auth_mod.verify_token("some-token")
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == 503
+
+    def test_auth_configuration_requires_cognito_settings(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import backend.app.auth as auth_mod
+
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("AUTH_DISABLED", "false")
+        monkeypatch.setattr(
+            "backend.app.config.get_settings",
+            lambda: SimpleNamespace(
+                app_env="development",
+                auth_disabled=False,
+                aws_region="",
+                cognito_user_pool_id="",
+                cognito_client_id="",
+            ),
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                "Missing required Cognito configuration: AWS_REGION, "
+                "COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID"
+            ),
+        ):
+            auth_mod.validate_auth_configuration()
+
+    def test_auth_cannot_be_disabled_in_production(self, monkeypatch):
+        import backend.app.auth as auth_mod
+
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+
+        with pytest.raises(RuntimeError, match="only allowed"):
+            auth_mod.validate_auth_configuration()
+
+    def test_auth_can_be_disabled_only_for_development_or_tests(self, monkeypatch):
+        import backend.app.auth as auth_mod
+
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("AUTH_DISABLED", "true")
+
+        auth_mod.validate_auth_configuration()
 
     def test_credentials_object_extracted(self, monkeypatch):
         monkeypatch.setenv("AUTH_DISABLED", "true")

@@ -13,6 +13,7 @@ resource "aws_lambda_function" "rag_api" {
 
   environment {
     variables = {
+      APP_ENV         = "production"
       QUEUE_URL       = aws_sqs_queue.rag_queue.id
       SECRET_NAME     = aws_secretsmanager_secret.rag_secrets.name
       BUCKET_NAME     = aws_s3_bucket.uploads.bucket

@@ -112,10 +112,35 @@ The backend health check at `http://localhost:8000/` should return
 frontend runs in a container, use a backend hostname reachable from that
 container instead of `localhost`.
 
-For a locally run FastAPI backend, set `AWS_REGION`, `COGNITO_USER_POOL_ID`, and
-`COGNITO_CLIENT_ID` in the backend process environment before starting it.
-Authentication configuration is read at startup; restarting the backend is
-required after changing these values.
+For local development, configure the backend separately from the frontend.
+Use a **development Cognito user pool** (not the production pool), and set its
+values in the repository-root `.env` file or the backend process environment.
+For a `.env` file, use:
+
+```dotenv
+APP_ENV=development
+AUTH_DISABLED=false
+AWS_REGION=<development-stack-region>
+COGNITO_USER_POOL_ID=<development-user-pool-id>
+COGNITO_CLIENT_ID=<development-app-client-id>
+```
+
+After applying the development Terraform stack, its outputs can be loaded in
+PowerShell from the repository root:
+
+```powershell
+$env:APP_ENV = "development"
+$env:AUTH_DISABLED = "false"
+$env:AWS_REGION = (terraform -chdir=infra output -raw aws_region)
+$env:COGNITO_USER_POOL_ID = (terraform -chdir=infra output -raw cognito_user_pool_id)
+$env:COGNITO_CLIENT_ID = (terraform -chdir=infra output -raw cognito_client_id)
+```
+
+Ensure `infra` is using the development stack/state before running these
+commands. The backend validates Cognito configuration at startup and will stop
+with a clear configuration error if required values are missing. Restart it
+after changing the environment. `AUTH_DISABLED=true` is restricted to
+`APP_ENV=development` or `APP_ENV=test`; production always requires Cognito.
 
 `AUTH_BASE_URL` must exactly match the `frontend_origin` used by Terraform. For
 production, set it to the HTTPS website origin, deploy/apply Terraform with
@@ -129,4 +154,5 @@ sign-in name. A Cognito pre-sign-up Lambda requires a valid email without
 changing the existing pool's immutable schema; Cognito then sends its email
 confirmation code. Existing accounts without an email will need an
 administrator to add and verify one before they can use self-service password
-recovery. Do not set `AUTH_DISABLED=true` in a deployed backend.
+recovery. The production Lambda is configured with `APP_ENV=production` and
+must use Cognito authentication.

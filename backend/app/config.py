@@ -6,6 +6,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    app_env: str = "production"
+    auth_disabled: bool = False
+
     aws_region: str = ""
     queue_url: str = ""
     bucket_name: str = ""
