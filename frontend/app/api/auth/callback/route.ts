@@ -17,7 +17,7 @@ function failedLogin(baseUrl: URL, message: string): NextResponse {
     new URL("/login?error=callback_failed", baseUrl),
   );
   clearAuthCookies(response);
-  console.error("Cognito OAuth callback failed:", message);
+  console.error("Cognito OAuth callback failed.");
   return response;
 }
 
