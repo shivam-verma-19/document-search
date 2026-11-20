@@ -323,7 +323,7 @@ def ask_question_stream(
     start_time = time.time()
 
     if not query or not query.strip():
-        yield "data: Please provide a question.\n\n"
+        yield _stream_error("INVALID_REQUEST", "Please provide a question.")
         yield "data: [DONE]\n\n"
         return
 
@@ -331,7 +331,7 @@ def ask_question_stream(
     filters = {**(filters or {}), "user_id": user_id}
 
     if _is_forbidden(query):
-        yield "data: This query is not allowed.\n\n"
+        yield _stream_error("QUERY_NOT_ALLOWED", "This query is not allowed.")
         yield "data: [DONE]\n\n"
         return
 
@@ -413,7 +413,10 @@ def ask_question_stream(
 
     except Exception as e:
         logger.error(f"Streaming generation failed: {e}", exc_info=True)
-        yield "data: I'm having trouble generating an answer right now.\n\n"
+        yield _stream_error(
+            "MODEL_UNAVAILABLE",
+            "The answer could not be generated. Please try again.",
+        )
         yield "data: [DONE]\n\n"
         return
 
@@ -435,6 +438,12 @@ def ask_question_stream(
         except Exception:
             pass
         _run_eval_async(query, context_plain, full_answer, docs, user_id)
+
+
+def _stream_error(code: str, message: str) -> str:
+    return (
+        f"data: {json.dumps({'type': 'error', 'code': code, 'message': message})}\n\n"
+    )
 
 
 # ─── Summarize ────────────────────────────────────────────────────────────────

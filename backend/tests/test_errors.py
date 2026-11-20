@@ -148,15 +148,39 @@ class TestErrorResponse:
         exc = AuthenticationError("test auth fail")
         resp = ErrorResponse.from_exception(exc)
         assert resp.status_code == 401
-        assert resp.error["message"] == "test auth fail"
+        assert resp.error["code"] == "AUTHENTICATION_REQUIRED"
+        assert resp.error["message"] == "Please sign in again to continue."
+        assert "details" not in resp.error
 
     def test_from_unknown_error(self):
         from backend.app.errors import ErrorResponse
 
         resp = ErrorResponse.from_unknown_error(ValueError("oops"))
         assert resp.status_code == 500
-        assert resp.error["category"] == "unknown"
-        assert resp.error["details"]["error_type"] == "ValueError"
+        assert resp.error["code"] == "INTERNAL_SERVER_ERROR"
+        assert resp.error["message"] == (
+            "The service encountered a problem. Please try again."
+        )
+        assert "details" not in resp.error
+
+    def test_public_error_payload_hides_server_details(self):
+        from backend.app.errors import public_error_payload
+
+        payload = public_error_payload(503, "internal hostname and credentials")
+
+        assert payload["error"] == {
+            "code": "SERVICE_UNAVAILABLE",
+            "message": "The service is temporarily unavailable. Please try again shortly.",
+            "retryable": True,
+        }
+
+    def test_public_error_payload_keeps_safe_upload_validation_message(self):
+        from backend.app.errors import public_error_payload
+
+        payload = public_error_payload(415, "Unsupported file extension: docx")
+
+        assert payload["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE"
+        assert payload["error"]["message"] == "Unsupported file extension: docx"
 
 
 class TestRetryConfig:

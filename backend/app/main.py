@@ -5,12 +5,14 @@ import sys
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from mangum import Mangum
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Must be before any other app code
@@ -25,7 +27,7 @@ from backend.app import ingest
 
 from .auth import verify_token
 from .config import get_settings
-from .errors import ErrorResponse, RAGException
+from .errors import ErrorResponse, RAGException, public_error_payload
 from .metrics import get_metrics
 from .rag import ask_question, ask_question_stream, summarize_doc
 
@@ -41,6 +43,25 @@ async def rag_exception_handler(request: Request, exc: RAGException):
     error_response = ErrorResponse.from_exception(exc)
     return JSONResponse(
         status_code=error_response.status_code, content={"error": error_response.error}
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=public_error_payload(exc.status_code, exc.detail),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
+    return JSONResponse(
+        status_code=422,
+        content=public_error_payload(422),
     )
 
 
@@ -78,8 +99,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             try:
                 user = verify_token(token)
             except HTTPException as exc:
-                if exc.status_code != 401:
-                    raise
                 request.state.auth_error = exc
             else:
                 request.state.auth_user = user
@@ -110,7 +129,7 @@ app.add_middleware(
 
 @app.exception_handler(RateLimitExceeded)
 def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+    return JSONResponse(status_code=429, content=public_error_payload(429))
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -178,7 +197,10 @@ def ask(
         filters=filters or None,
     )
     if answer.startswith("Error:") or "all model tiers failed" in answer:
-        return JSONResponse(status_code=503, content={"answer": answer})
+        return JSONResponse(
+            status_code=503,
+            content=public_error_payload(503, code="MODEL_UNAVAILABLE"),
+        )
     return {"answer": answer, "session_id": session_id}
 
 

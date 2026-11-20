@@ -35,16 +35,14 @@ def validate_upload_file(file: UploadFile) -> bytes:
     extension = file.filename.rsplit(".", 1)[-1].lower()
     if extension not in settings.allowed_upload_extensions_list:
         raise HTTPException(
-            status_code=400, detail=f"Unsupported file extension: {extension}"
+            status_code=415, detail=f"Unsupported file extension: {extension}"
         )
 
     if (
         file.content_type
         and file.content_type not in settings.allowed_upload_mimes_list
     ):
-        raise HTTPException(
-            status_code=400, detail=f"Unsupported content type: {file.content_type}"
-        )
+        raise HTTPException(status_code=415, detail="Unsupported file content type.")
 
     # Read raw bytes
     raw = file.file.read(settings.max_upload_size + 1)
@@ -63,7 +61,7 @@ def validate_upload_file(file: UploadFile) -> bytes:
         content = raw
 
     if len(content) > settings.max_upload_size:
-        raise HTTPException(status_code=400, detail="File too large")
+        raise HTTPException(status_code=413, detail="File too large")
 
     return content
 
@@ -77,7 +75,9 @@ def upload_file_to_s3(file: UploadFile, user: str) -> str:
         get_s3_client().upload_fileobj(BytesIO(content), settings.bucket_name, key)
     except ClientError as e:
         logger.error(f"S3 upload failed: {e}")
-        raise HTTPException(status_code=500, detail="File upload failed")
+        raise HTTPException(
+            status_code=503, detail="File upload is temporarily unavailable."
+        )
     return key
 
 

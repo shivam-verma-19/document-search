@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import api from "../apiClient";
+import { getApiErrorMessageForCode } from "../../lib/api-errors";
 
 interface SourceItem {
   doc_id?: string;
@@ -53,8 +54,8 @@ export default function ChatPage() {
     if (sessionId) {
       try {
         await api.delete(`/session/${sessionId}`);
-      } catch (err) {
-        console.warn("Could not clear session on backend:", err);
+      } catch {
+        console.warn("Could not clear the previous chat session.");
       }
     }
     const newSid = "sess_" + crypto.randomUUID();
@@ -156,16 +157,24 @@ export default function ChatPage() {
                     )
                   );
                 } else if (payload.type === "error") {
-                  streamedAnswer += `\n[Error: ${payload.error}]`;
+                  streamedAnswer +=
+                    `\n${getApiErrorMessageForCode(payload.code)}`;
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === assistantPlaceholderId
+                        ? { ...msg, content: streamedAnswer }
+                        : msg,
+                    ),
+                  );
                 }
-              } catch (parseErr) {
-                console.warn("SSE parse error:", parseErr);
+              } catch {
+                console.warn("Could not process a streaming response.");
               }
             }
           }
         }
-      } catch (err: any) {
-        console.warn("Streaming error, falling back to sync:", err);
+      } catch {
+        console.warn("Streaming request failed; retrying without streaming.");
         // Fallback to standard /ask endpoint
         try {
           const res = await api.get("/ask", { params: queryParams });

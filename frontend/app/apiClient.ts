@@ -1,4 +1,8 @@
 import axios from "axios";
+import {
+  getApiErrorMessage,
+  getNetworkErrorMessage,
+} from "../lib/api-errors";
 
 const api = axios.create({
   baseURL: "/api/backend",
@@ -13,11 +17,12 @@ api.interceptors.response.use(
       window.dispatchEvent(new Event("rag:auth-required"));
     }
     if (!error.response) {
-      if (error.code === "ECONNABORTED") {
-        error.message = "Request timed out. The RAG pipeline took longer than expected.";
-      } else {
-        error.message = "Network error. Check your connection or verify backend server is running.";
-      }
+      error.message = getNetworkErrorMessage(error.code === "ECONNABORTED");
+    } else {
+      error.message = getApiErrorMessage(
+        error.response.status,
+        error.response.data,
+      );
     }
     return Promise.reject(error);
   }

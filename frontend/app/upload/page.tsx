@@ -92,7 +92,9 @@ export default function UploadPage() {
       setDeleteStatus(`Document deleted successfully. Removed chunks count: ${res.data?.deleted_count ?? 1}`);
       setDeleteDocId("");
     } catch (err: any) {
-      setDeleteStatus(`Failed to delete document: ${err.response?.data?.detail || err.message}`);
+      setDeleteStatus(
+        `Failed to delete document: ${err.message || "Please try again."}`,
+      );
     }
   };
 

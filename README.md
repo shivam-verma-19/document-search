@@ -101,6 +101,17 @@ COGNITO_CLIENT_ID=<terraform output cognito_client_id>
 RAG_API_URL=http://localhost:8000
 ```
 
+For local development, start the FastAPI service from the repository root:
+
+```powershell
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The backend health check at `http://localhost:8000/` should return
+`{"status":"running"}`. `RAG_API_URL` must be the backend's base URL; if the
+frontend runs in a container, use a backend hostname reachable from that
+container instead of `localhost`.
+
 For a locally run FastAPI backend, set `AWS_REGION`, `COGNITO_USER_POOL_ID`, and
 `COGNITO_CLIENT_ID` in the backend process environment before starting it.
 Authentication configuration is read at startup; restarting the backend is

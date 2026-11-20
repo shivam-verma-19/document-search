@@ -1,5 +1,6 @@
 """Tests for ask_question_stream — SSE streaming generator."""
 
+import json
 import sys
 
 import pytest
@@ -79,12 +80,17 @@ class TestAskQuestionStream:
         chunks = _collect_stream(ask_question_stream(""))
         assert any("[DONE]" in c for c in chunks)
         assert len(chunks) == 2  # error message + DONE
+        error = json.loads(chunks[0][len("data: ") :])
+        assert error["code"] == "INVALID_REQUEST"
+        assert error["message"] == "Please provide a question."
 
     def test_forbidden_query_yields_blocked_and_done(self, monkeypatch):
         from backend.app.rag import ask_question_stream
 
         chunks = _collect_stream(ask_question_stream("how to hack"))
         assert any("not allowed" in c for c in chunks)
+        error = json.loads(chunks[0][len("data: ") :])
+        assert error["code"] == "QUERY_NOT_ALLOWED"
         assert chunks[-1] == "data: [DONE]\n\n"
 
     def test_cached_answer_streamed_token_by_token(self, monkeypatch):
@@ -121,7 +127,13 @@ class TestAskQuestionStream:
             chunks = _collect_stream(rag_mod.ask_question_stream("question"))
 
         assert chunks[-1] == "data: [DONE]\n\n"
-        assert any("trouble" in c for c in chunks)
+        error_frame = next(chunk for chunk in chunks if '"type": "error"' in chunk)
+        error = json.loads(error_frame[len("data: ") :])
+        assert error["code"] == "MODEL_UNAVAILABLE"
+        assert error["message"] == (
+            "The answer could not be generated. Please try again."
+        )
+        assert "api down" not in error_frame
 
     def test_newlines_escaped_for_sse(self, monkeypatch):
         """Newlines in tokens must be escaped as \\n for SSE transport."""

@@ -309,6 +309,10 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
+# Keep frontend application libraries versioned despite the Python lib/ rule.
+!frontend/lib/
+!frontend/lib/*.ts
+
 # Docker
 *.log
 

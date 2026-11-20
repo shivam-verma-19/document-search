@@ -126,7 +126,7 @@ def verify_token(
     if not client:
         if os.getenv("AUTH_DISABLED", "false").lower() == "true":
             return "user-id"
-        raise HTTPException(status_code=500, detail="Auth provider not configured")
+        raise HTTPException(status_code=503, detail="Auth provider not configured")
 
     try:
         signing_key = client.get_signing_key_from_jwt(token)
@@ -138,7 +138,7 @@ def verify_token(
             client_id = get_settings().cognito_client_id
         if not client_id:
             logger.error("COGNITO_CLIENT_ID is not configured")
-            raise HTTPException(status_code=500, detail="Auth provider not configured")
+            raise HTTPException(status_code=503, detail="Auth provider not configured")
 
         from .config import get_settings
 
@@ -186,7 +186,7 @@ def verify_cognito_token(
     if not client:
         if os.getenv("AUTH_DISABLED", "false").lower() == "true":
             return "user-id"
-        raise HTTPException(status_code=500, detail="Auth provider not configured")
+        raise HTTPException(status_code=503, detail="Auth provider not configured")
 
     return verify_token(token)
 
@@ -204,6 +204,6 @@ def optional_auth(
     if not client:
         if os.getenv("AUTH_DISABLED", "false").lower() == "true":
             return "user-id"
-        raise HTTPException(status_code=500, detail="Auth provider not configured")
+        raise HTTPException(status_code=503, detail="Auth provider not configured")
 
     return verify_token(token)

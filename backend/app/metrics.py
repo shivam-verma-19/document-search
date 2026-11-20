@@ -1,11 +1,16 @@
+import logging
 import os
 import time
 import uuid
 
 import boto3
 from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import HTTPException
 
 from .monitoring import push_metric
+
+logger = logging.getLogger(__name__)
 
 _TABLE_NAME = os.getenv("DYNAMODB_METRICS_TABLE", "rag-metrics")
 _METRICS_WINDOW_SECONDS = int(os.getenv("METRICS_WINDOW_SECONDS", str(24 * 3600)))
@@ -71,8 +76,12 @@ def get_metrics(window_seconds: int | None = None, user_id: str | None = None):
             items.extend(response.get("Items", []))
             last_evaluated_key = response.get("LastEvaluatedKey")
 
-    except Exception:
+    except (BotoCoreError, ClientError) as exc:
+        logger.error("Metrics storage is unavailable", exc_info=exc)
         push_metric("MetricQueryFailure", 1, unit="Count")
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Metrics are temporarily unavailable.",
+        ) from exc
 
     return items

@@ -45,8 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const result = (await response.json()) as { authenticated: boolean };
       setStatus(result.authenticated ? "authenticated" : "anonymous");
-    } catch (error) {
-      console.error("Could not verify the sign-in session:", error);
+    } catch {
+      console.error("Could not verify the sign-in session.");
       setStatus("error");
     }
   }, []);
@@ -71,8 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
       }
-    } catch (error) {
-      console.error("Could not complete Cognito logout:", error);
+    } catch {
+      console.error("Could not complete sign-out.");
       setStatus("anonymous");
     }
     window.location.assign("/login");

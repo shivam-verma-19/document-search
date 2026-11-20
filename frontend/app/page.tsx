@@ -23,7 +23,7 @@ export default function Home() {
         }
       })
       .catch(() => {
-        setHealthStatus("Backend Offline or Unreachable");
+        setHealthStatus("Backend temporarily unavailable");
         setHealthOk(false);
       });
   }, []);

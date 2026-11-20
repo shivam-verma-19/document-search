@@ -5,6 +5,7 @@ import {
   isSameOriginRequest,
   REFRESH_COOKIE,
 } from "../../../../lib/auth";
+import { apiErrorResponse } from "../../../../lib/api-error-response";
 
 export async function POST(request: NextRequest) {
   let config;
@@ -12,16 +13,21 @@ export async function POST(request: NextRequest) {
     config = getAuthConfig();
   } catch (error) {
     console.error("Cognito logout configuration error:", error);
-    const response = NextResponse.json(
-      { detail: "Authentication is not configured." },
-      { status: 503 },
+    const response = apiErrorResponse(
+      503,
+      "AUTH_CONFIGURATION_ERROR",
+      "Sign-out is temporarily unavailable. Please try again later.",
     );
     clearAuthCookies(response);
     return response;
   }
 
   if (!isSameOriginRequest(request)) {
-    return NextResponse.json({ detail: "Invalid request origin." }, { status: 403 });
+    return apiErrorResponse(
+      403,
+      "INVALID_REQUEST_ORIGIN",
+      "This request could not be verified. Refresh and try again.",
+    );
   }
 
   const logoutUrl = new URL("/logout", config.domain);

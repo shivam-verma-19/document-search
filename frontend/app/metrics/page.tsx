@@ -55,7 +55,7 @@ export default function MetricsPage() {
       });
       setEvalScores(res.data);
     } catch (err: any) {
-      setEvalError(err.response?.data?.error?.message || err.message || "Evaluation failed.");
+      setEvalError(err.message || "Evaluation could not be completed. Please try again.");
     } finally {
       setEvalRunning(false);
     }
@@ -204,7 +204,12 @@ export default function MetricsPage() {
             </div>
 
             {metricsApi.loading && <p style={{ color: "var(--text-secondary)" }}>Loading metrics...</p>}
-            {rawMetrics.length === 0 && !metricsApi.loading && (
+            {metricsApi.error && (
+              <p role="alert" style={{ color: "var(--accent-danger)" }}>
+                {metricsApi.error.message}
+              </p>
+            )}
+            {rawMetrics.length === 0 && !metricsApi.loading && !metricsApi.error && (
               <p style={{ color: "var(--text-secondary)" }}>No metrics recorded yet. Run a query in the Chat tab!</p>
             )}
 

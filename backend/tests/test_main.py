@@ -78,7 +78,12 @@ class TestMainRoutes:
 
     def test_ask_requires_query_param(self, client):
         resp = client.get("/ask", headers={"Authorization": "Bearer fake"})
-        assert resp.status_code in (400, 422)
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert resp.json()["error"]["message"] == (
+            "Please check your request and try again."
+        )
+        assert "details" not in resp.json()["error"]
 
     def test_ask_returns_answer(self, client):
         resp = client.get("/ask?q=hello", headers={"Authorization": "Bearer fake"})
@@ -140,3 +145,50 @@ class TestMainRoutes:
             files={"file": ("test.txt", b"hello", "text/plain")},
         )
         assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+        assert "details" not in resp.json()["error"]
+
+    def test_auth_provider_failure_keeps_service_unavailable_status(
+        self, client, monkeypatch
+    ):
+        from fastapi import HTTPException
+
+        import backend.app.main as main_mod
+
+        def unavailable_provider(_token):
+            raise HTTPException(status_code=503, detail="internal provider details")
+
+        monkeypatch.setattr(main_mod, "verify_token", unavailable_provider)
+        response = client.get(
+            "/metrics",
+            headers={"Authorization": "Bearer fake"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+        assert (
+            response.json()["error"]["message"]
+            == "The service is temporarily unavailable. Please try again shortly."
+        )
+        assert "internal provider details" not in response.text
+
+    def test_internal_error_hides_server_details(self, client):
+        import backend.app.main as main_mod
+
+        def broken_endpoint():
+            raise RuntimeError("database credentials leaked")
+
+        main_mod.app.add_api_route(
+            "/internal-error-test",
+            broken_endpoint,
+            methods=["GET"],
+        )
+        response = client.get("/internal-error-test")
+
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert (
+            response.json()["error"]["message"]
+            == "The service encountered a problem. Please try again."
+        )
+        assert "database credentials leaked" not in response.text

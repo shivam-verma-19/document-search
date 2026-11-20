@@ -8,6 +8,7 @@ import {
   OAUTH_VERIFIER_COOKIE,
   RETURN_TO_COOKIE,
 } from "../../../../lib/auth";
+import { apiErrorResponse } from "../../../../lib/api-error-response";
 
 const OAUTH_COOKIE_MAX_AGE_SECONDS = 10 * 60;
 
@@ -17,9 +18,10 @@ export async function GET(request: NextRequest) {
     config = getAuthConfig();
   } catch (error) {
     console.error("Cognito login configuration error:", error);
-    return NextResponse.json(
-      { detail: "Authentication is not configured." },
-      { status: 503 },
+    return apiErrorResponse(
+      503,
+      "AUTH_CONFIGURATION_ERROR",
+      "Sign-in is temporarily unavailable. Please try again later.",
     );
   }
 
@@ -30,7 +32,7 @@ export async function GET(request: NextRequest) {
   authorizeUrl.search = new URLSearchParams({
     client_id: config.clientId,
     response_type: "code",
-    scope: "openid email profile",
+    scope: "openid email",
     redirect_uri: config.callbackUrl,
     state,
     code_challenge_method: "S256",

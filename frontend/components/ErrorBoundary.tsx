@@ -22,8 +22,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("ErrorBoundary caught:", error, info);
+  componentDidCatch() {
+    console.error("Page rendering failed.");
   }
 
   reset = () => this.setState({ hasError: false, error: null });
@@ -36,7 +36,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
       return (
         <div style={{ padding: 24 }}>
           <h2>Something went wrong</h2>
-          <p style={{ color: "red" }}>{this.state.error.message}</p>
+          <p style={{ color: "red" }}>
+            The page could not be displayed. Please try again.
+          </p>
           <button onClick={this.reset}>Try again</button>
         </div>
       );

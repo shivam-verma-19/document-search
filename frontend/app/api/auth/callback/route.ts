@@ -10,6 +10,7 @@ import {
   setAuthCookies,
   type CognitoTokens,
 } from "../../../../lib/auth";
+import { apiErrorResponse } from "../../../../lib/api-error-response";
 
 function failedLogin(baseUrl: URL, message: string): NextResponse {
   const response = NextResponse.redirect(
@@ -26,9 +27,10 @@ export async function GET(request: NextRequest) {
     config = getAuthConfig();
   } catch (error) {
     console.error("Cognito callback configuration error:", error);
-    return NextResponse.json(
-      { detail: "Authentication is not configured." },
-      { status: 503 },
+    return apiErrorResponse(
+      503,
+      "AUTH_CONFIGURATION_ERROR",
+      "Sign-in is temporarily unavailable. Please try again later.",
     );
   }
 
@@ -36,16 +38,23 @@ export async function GET(request: NextRequest) {
   const expectedState = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
   const verifier = request.cookies.get(OAUTH_VERIFIER_COOKIE)?.value;
   const code = request.nextUrl.searchParams.get("code");
+  const oauthError = request.nextUrl.searchParams.get("error");
   const returnTo = request.cookies.get(RETURN_TO_COOKIE)?.value || "/";
 
-  if (
-    !returnedState ||
-    !expectedState ||
-    returnedState !== expectedState ||
-    !verifier ||
-    !code
-  ) {
-    return failedLogin(config.baseUrl, "Invalid OAuth state or missing code.");
+  if (!returnedState || !expectedState || returnedState !== expectedState) {
+    return failedLogin(config.baseUrl, "Invalid OAuth state.");
+  }
+  if (oauthError) {
+    return failedLogin(
+      config.baseUrl,
+      `Cognito returned OAuth error: ${oauthError}.`,
+    );
+  }
+  if (!verifier) {
+    return failedLogin(config.baseUrl, "Missing OAuth PKCE verifier.");
+  }
+  if (!code) {
+    return failedLogin(config.baseUrl, "Missing OAuth authorization code.");
   }
 
   let tokens: CognitoTokens;

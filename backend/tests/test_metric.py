@@ -2,6 +2,8 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
+from fastapi import HTTPException
 
 # Mock google.genai before any import so embeddings module loads cleanly
 _mock_genai = MagicMock()
@@ -66,7 +68,7 @@ class TestMetrics:
             result = metrics.get_metrics()
         assert len(result) == 2
 
-    def test_get_metrics_exception_returns_empty_and_pushes_failure(self):
+    def test_get_metrics_storage_error_returns_503_and_pushes_failure(self):
         import backend.app.metrics as metrics
 
         with patch.object(metrics, "_get_table") as mock_get_table, patch(
@@ -74,7 +76,11 @@ class TestMetrics:
         ) as mock_push:
             mock_table = MagicMock()
             mock_get_table.return_value = mock_table
-            mock_table.scan.side_effect = Exception("DynamoDB down")
-            result = metrics.get_metrics()
-        assert result == []
+            mock_table.scan.side_effect = ClientError(
+                {"Error": {"Code": "InternalServerError", "Message": "DynamoDB down"}},
+                "Scan",
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                metrics.get_metrics()
+        assert exc_info.value.status_code == 503
         mock_push.assert_called_with("MetricQueryFailure", 1, unit="Count")

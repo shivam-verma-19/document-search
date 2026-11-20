@@ -8,6 +8,7 @@ import {
   setAuthCookies,
   type CognitoTokens,
 } from "../../../../lib/auth";
+import { apiErrorResponse } from "../../../../lib/api-error-response";
 
 export async function GET(request: NextRequest) {
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
@@ -27,9 +28,10 @@ export async function GET(request: NextRequest) {
     tokens = await refreshCognitoTokens(refreshToken);
   } catch (error) {
     console.error("Cognito session refresh failed:", error);
-    return NextResponse.json(
-      { detail: "Authentication provider is unavailable." },
-      { status: 503 },
+    return apiErrorResponse(
+      503,
+      "AUTH_PROVIDER_UNAVAILABLE",
+      "Sign-in is temporarily unavailable. Please try again later.",
     );
   }
 

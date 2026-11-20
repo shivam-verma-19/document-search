@@ -208,7 +208,10 @@ class ErrorResponse:
     def from_exception(cls, exc: RAGException) -> "ErrorResponse":
         exc.log()
         return cls(
-            error=exc.to_dict()["error"],
+            error=public_error_payload(
+                exc.status_code,
+                detail=exc.message,
+            )["error"],
             status_code=exc.status_code,
         )
 
@@ -220,21 +223,15 @@ class ErrorResponse:
         user_message: str = "An unexpected error occurred",
     ) -> "ErrorResponse":
         logger.error(
-            f"Unexpected error: {str(error)}",
-            exc_info=error,
+            "Unexpected backend error",
+            exc_info=(type(error), error, error.__traceback__),
         )
 
         return cls(
-            error={
-                "message": user_message,
-                "category": "unknown",
-                "severity": "error",
-                "retryable": False,
-                "timestamp": datetime.utcnow().isoformat(),
-                "details": {
-                    "error_type": type(error).__name__,
-                },
-            },
+            error=public_error_payload(
+                status_code,
+                detail=user_message if status_code < 500 else None,
+            )["error"],
             status_code=status_code,
         )
 
@@ -318,3 +315,59 @@ class ErrorTracker:
 
 
 error_tracker = ErrorTracker()
+
+
+_HTTP_ERROR_DEFAULTS = {
+    400: ("INVALID_REQUEST", "Please check your input and try again.", False),
+    401: ("AUTHENTICATION_REQUIRED", "Please sign in again to continue.", False),
+    403: ("FORBIDDEN", "You don't have permission to perform this action.", False),
+    404: ("NOT_FOUND", "The requested resource was not found.", False),
+    405: ("METHOD_NOT_ALLOWED", "This action is not supported.", False),
+    413: ("PAYLOAD_TOO_LARGE", "The uploaded file exceeds the allowed size.", False),
+    415: ("UNSUPPORTED_MEDIA_TYPE", "This file type is not supported.", False),
+    422: ("VALIDATION_ERROR", "Please check your request and try again.", False),
+    429: ("RATE_LIMITED", "Too many requests. Wait a moment and try again.", True),
+    500: (
+        "INTERNAL_SERVER_ERROR",
+        "The service encountered a problem. Please try again.",
+        True,
+    ),
+    502: (
+        "BAD_GATEWAY",
+        "A dependent service could not be reached. Please try again shortly.",
+        True,
+    ),
+    503: (
+        "SERVICE_UNAVAILABLE",
+        "The service is temporarily unavailable. Please try again shortly.",
+        True,
+    ),
+    504: ("GATEWAY_TIMEOUT", "The request took too long. Please try again.", True),
+}
+
+
+def public_error_payload(
+    status_code: int,
+    detail: Any = None,
+    *,
+    code: Optional[str] = None,
+) -> Dict[str, Any]:
+    default_code, default_message, retryable = _HTTP_ERROR_DEFAULTS.get(
+        status_code,
+        (
+            "REQUEST_FAILED",
+            "The request could not be completed. Please try again.",
+            False,
+        ),
+    )
+    message = default_message
+    if status_code in {400, 413, 415} and isinstance(detail, str) and detail:
+        message = detail
+
+    return {
+        "error": {
+            "code": code or default_code,
+            "message": message,
+            "retryable": retryable,
+        }
+    }

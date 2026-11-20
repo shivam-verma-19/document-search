@@ -1,11 +1,16 @@
 import { useState, useCallback, useRef } from "react";
 import api from "../app/apiClient";
-import axios from "axios";
+import {
+  getApiErrorMessage,
+  getNetworkErrorMessage,
+} from "../lib/api-errors";
 
 export type ApiErrorType =
   | "timeout"
   | "network"
   | "auth"
+  | "forbidden"
+  | "not_found"
   | "rate_limit"
   | "server"
   | "validation"
@@ -16,7 +21,7 @@ export interface ApiError {
   message: string;
   retryable: boolean;
   statusCode?: number;
-  details?: Record<string, any>;
+  code?: string;
 }
 
 export interface UseApiOptions {
@@ -36,78 +41,80 @@ export interface UseApiState {
 }
 
 const categorizeError = (error: any): ApiError => {
-  // Network/Timeout errors
-  if (error.code === "ECONNABORTED" || error.message?.includes("timeout")) {
+  const status = error.response?.status as number | undefined;
+  const code = error.response?.data?.error?.code as string | undefined;
+
+  if (error.code === "ECONNABORTED") {
     return {
       type: "timeout",
-      message: "Request took too long. Please try again.",
+      message: getNetworkErrorMessage(true),
       retryable: true,
-      details: { originalError: error.message },
     };
   }
 
-  if (!error.response) {
+  if (status === undefined) {
     return {
       type: "network",
-      message: "Network error. Check your connection and try again.",
+      message: getNetworkErrorMessage(false),
       retryable: true,
-      details: { originalError: error.message },
     };
   }
 
-  const status = error.response?.status;
-  const errorData = error.response?.data;
-
-  // Authentication errors
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     return {
       type: "auth",
-      message: "Your session has expired. Please log in again.",
+      message: getApiErrorMessage(status, error.response.data),
       retryable: false,
       statusCode: status,
+      code,
     };
   }
-
-  // Rate limiting
+  if (status === 403) {
+    return {
+      type: "forbidden",
+      message: getApiErrorMessage(status, error.response.data),
+      retryable: false,
+      statusCode: status,
+      code,
+    };
+  }
+  if (status === 404) {
+    return {
+      type: "not_found",
+      message: getApiErrorMessage(status, error.response.data),
+      retryable: false,
+      statusCode: status,
+      code,
+    };
+  }
   if (status === 429) {
     return {
       type: "rate_limit",
-      message: "Too many requests. Please wait a moment and try again.",
+      message: getApiErrorMessage(status, error.response.data),
       retryable: true,
       statusCode: status,
-      details: errorData?.error?.details || {},
+      code,
     };
   }
-
-  // Validation errors
-  if (status === 400) {
+  if (status >= 500) {
     return {
-      type: "validation",
-      message: errorData?.error?.message || "Invalid input. Please check your request.",
-      retryable: false,
-      statusCode: status,
-    };
-  }
-
-  // Server errors (retryable)
-  if (status && status >= 500) {
-    return {
-      type: "server",
-      message: "Server error. Please try again in a moment.",
+      type: status === 504 ? "timeout" : "server",
+      message: getApiErrorMessage(status, error.response.data),
       retryable: true,
       statusCode: status,
-      details: {
-        category: errorData?.error?.category,
-        severity: errorData?.error?.severity,
-      },
+      code,
     };
   }
 
   return {
-    type: "unknown",
-    message: errorData?.error?.message || error.message || "An unexpected error occurred.",
-    retryable: errorData?.error?.retryable || false,
+    type:
+      status === 400 || status === 413 || status === 415 || status === 422
+        ? "validation"
+        : "unknown",
+    message: getApiErrorMessage(status, error.response.data),
+    retryable: false,
     statusCode: status,
+    code,
   };
 };
 

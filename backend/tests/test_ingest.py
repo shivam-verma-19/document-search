@@ -133,7 +133,7 @@ class TestIngest:
         )
         with pytest.raises(HTTPException) as exc:
             validate_upload_file(f)
-        assert exc.value.status_code == 400
+        assert exc.value.status_code == 415
 
     def test_validate_upload_empty_file(self):
         from fastapi import HTTPException
@@ -156,7 +156,7 @@ class TestIngest:
         f = self._make_upload(content=big)
         with pytest.raises(HTTPException) as exc:
             validate_upload_file(f)
-        assert exc.value.status_code == 400
+        assert exc.value.status_code == 413
 
     def test_validate_upload_valid_file_returns_bytes(self):
         from backend.app.ingest import validate_upload_file
@@ -194,7 +194,7 @@ class TestIngest:
             )
             with pytest.raises(HTTPException) as exc:
                 upload_file_to_s3(f, "user123")
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == 503
 
     def test_enqueue_file_success(self):
         from backend.app.ingest import enqueue_file
