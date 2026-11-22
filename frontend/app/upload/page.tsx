@@ -6,6 +6,18 @@ import { useApi } from "../../hooks/useAPI";
 
 const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".csv"];
 const MAX_SIZE_MB = 10;
+const MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".csv": "text/csv",
+};
+
+interface PresignedUpload {
+  upload_url: string;
+  fields: Record<string, string>;
+  key: string;
+  content_type: string;
+}
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -14,6 +26,7 @@ export default function UploadPage() {
   const [deleteDocId, setDeleteDocId] = useState("");
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null);
   const [recentUploads, setRecentUploads] = useState<Array<{ name: string; key: string; date: string }>>([]);
+  const [uploading, setUploading] = useState(false);
 
   const apiHook = useApi();
 
@@ -60,13 +73,33 @@ export default function UploadPage() {
       return;
     }
 
+    setUploading(true);
     setMessage({ text: "Uploading and queuing for adaptive ingestion...", type: "info" });
-    const formData = new FormData();
-    formData.append("file", file);
 
     try {
-      const res = await apiHook.post("/upload", formData);
-      const uploadedKey = res.key || file.name;
+      const extension = "." + file.name.split(".").pop()?.toLowerCase();
+      const contentType = file.type || MIME_TYPES[extension];
+      const intent: PresignedUpload = await apiHook.post("/upload/presign", {
+        filename: file.name,
+        content_type: contentType,
+        size: file.size,
+      });
+      const formData = new FormData();
+      Object.entries(intent.fields).forEach(([name, value]) => {
+        formData.append(name, value);
+      });
+      formData.append("file", file);
+      const uploadResponse = await fetch(intent.upload_url, {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("The file could not be uploaded to storage.");
+      }
+      const completion = await apiHook.post("/upload/complete", {
+        key: intent.key,
+      });
+      const uploadedKey = completion.key;
       setMessage({
         text: `Successfully uploaded: ${uploadedKey}. Vector indexing and BM25 indexing in progress.`,
         type: "success",
@@ -81,6 +114,8 @@ export default function UploadPage() {
         text: err.message || "Upload failed. Please check backend connection.",
         type: "error",
       });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -181,7 +216,7 @@ export default function UploadPage() {
 
       <button
         onClick={uploadFile}
-        disabled={!file || apiHook.loading}
+        disabled={!file || apiHook.loading || uploading}
         style={{
           width: "100%",
           padding: "12px",
@@ -190,12 +225,12 @@ export default function UploadPage() {
           color: "#fff",
           border: "none",
           fontWeight: 600,
-          cursor: !file || apiHook.loading ? "not-allowed" : "pointer",
-          opacity: !file || apiHook.loading ? 0.6 : 1,
+          cursor: !file || apiHook.loading || uploading ? "not-allowed" : "pointer",
+          opacity: !file || apiHook.loading || uploading ? 0.6 : 1,
           marginBottom: 24,
         }}
       >
-        {apiHook.loading ? "Processing Upload..." : "Upload & Ingest Document"}
+        {apiHook.loading || uploading ? "Processing Upload..." : "Upload & Ingest Document"}
       </button>
 
       {message && (

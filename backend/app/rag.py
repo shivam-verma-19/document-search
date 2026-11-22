@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import time
 from decimal import Decimal
@@ -154,6 +155,9 @@ def _run_eval_async(
     Runs in a thread so it never delays the response to the user.
     Swallows all exceptions — eval must never affect the main pipeline.
     """
+    if os.getenv("ENABLE_BACKGROUND_EVAL", "false").strip().lower() != "true":
+        return
+
     import threading
 
     def _eval():

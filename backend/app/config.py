@@ -1,7 +1,9 @@
 import json
+import os
 from functools import lru_cache
 from typing import List
 
+import boto3
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,8 +20,10 @@ class Settings(BaseSettings):
 
     max_upload_size: int = 10485760
 
-    allowed_upload_extensions: str = ""
-    allowed_upload_mimes: str = ""
+    allowed_upload_extensions: str = "pdf,txt,csv"
+    allowed_upload_mimes: str = (
+        "application/pdf,text/plain,text/csv,application/vnd.ms-excel"
+    )
     forbidden_upload_patterns: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
@@ -50,4 +54,12 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    _configure_aws_session(settings.aws_region)
+    return settings
+
+
+def _configure_aws_session(region: str) -> None:
+    boto3.setup_default_session(
+        region_name=os.getenv("AWS_DEFAULT_REGION") or region or "ap-south-1"
+    )

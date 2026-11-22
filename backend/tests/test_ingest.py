@@ -16,13 +16,13 @@ class TestValidateUploadFile:
     def test_valid_file_returns_content(self):
         upload = UploadFile(
             filename="report.pdf",
-            file=BytesIO(b"hello world"),
+            file=BytesIO(b"%PDF-1.7\nhello world"),
             headers=Headers({"content-type": "application/pdf"}),
         )
 
         content = validate_upload_file(upload)
 
-        assert content == b"hello world"
+        assert content == b"%PDF-1.7\nhello world"
 
 
 class TestUploadFileToS3:
@@ -33,13 +33,14 @@ class TestUploadFileToS3:
 
         upload = UploadFile(
             filename="report.pdf",
-            file=BytesIO(b"hello world"),
+            file=BytesIO(b"%PDF-1.7\nhello world"),
             headers=Headers({"content-type": "application/pdf"}),
         )
 
         key = upload_file_to_s3(upload, "user-123")
 
-        assert key == "user-123/report.pdf"
+        assert key.startswith("user-123/")
+        assert key.endswith("_report.pdf")
 
     @patch("backend.app.ingest.get_s3_client")
     def test_calls_upload_fileobj(self, mock_client_factory):
@@ -48,7 +49,7 @@ class TestUploadFileToS3:
 
         upload = UploadFile(
             filename="report.pdf",
-            file=BytesIO(b"hello world"),
+            file=BytesIO(b"%PDF-1.7\nhello world"),
             headers=Headers({"content-type": "application/pdf"}),
         )
 
@@ -72,6 +73,37 @@ class TestUploadFileToS3ClientError:
 
         with pytest.raises(Exception):
             upload_file_to_s3(upload, "user-123")
+
+
+def test_create_presigned_upload_uses_validated_content_type():
+    from backend.app.ingest import create_presigned_upload
+
+    client = MagicMock()
+    client.generate_presigned_post.return_value = {
+        "url": "https://s3.example/upload",
+        "fields": {"key": "user-123/report.pdf"},
+    }
+    with patch("backend.app.ingest.get_s3_client", return_value=client):
+        result = create_presigned_upload(
+            "user-123", "report.pdf", "application/pdf", 100
+        )
+
+    assert result["upload_url"] == "https://s3.example/upload"
+    assert result["fields"] == {"key": "user-123/report.pdf"}
+    assert result["content_type"] == "application/pdf"
+    assert result["key"].startswith("user-123/")
+    conditions = client.generate_presigned_post.call_args.kwargs["Conditions"]
+    assert ["content-length-range", 1, 100] in conditions
+
+
+def test_validate_uploaded_object_rejects_another_users_key():
+    from fastapi import HTTPException
+
+    from backend.app.ingest import validate_uploaded_object
+
+    with pytest.raises(HTTPException) as exc:
+        validate_uploaded_object("other-user/file.pdf", "user-123")
+    assert exc.value.status_code == 404
 
 
 class TestIngest:
@@ -145,6 +177,16 @@ class TestIngest:
             validate_upload_file(f)
         assert exc.value.status_code == 400
 
+    def test_validate_upload_rejects_non_pdf_bytes(self):
+        from fastapi import HTTPException
+
+        from backend.app.ingest import validate_upload_file
+
+        f = self._make_upload(content=b"not a PDF")
+        with pytest.raises(HTTPException) as exc:
+            validate_upload_file(f)
+        assert exc.value.status_code == 415
+
     def test_validate_upload_file_too_large(self, monkeypatch):
         from fastapi import HTTPException
 
@@ -203,8 +245,9 @@ class TestIngest:
             mock_boto.return_value.send_message.return_value = {}
             enqueue_file("user/file.txt", "user123")  # should not raise
 
-    def test_enqueue_file_sqs_error_is_non_fatal(self):
+    def test_enqueue_file_sqs_error_is_reported(self):
         from botocore.exceptions import ClientError
+        from fastapi import HTTPException
 
         from backend.app.ingest import enqueue_file
 
@@ -213,4 +256,6 @@ class TestIngest:
                 {"Error": {"Code": "QueueDoesNotExist", "Message": "err"}},
                 "SendMessage",
             )
-            enqueue_file("user/file.txt")  # should NOT raise
+            with pytest.raises(HTTPException) as exc:
+                enqueue_file("user/file.txt")
+        assert exc.value.status_code == 503

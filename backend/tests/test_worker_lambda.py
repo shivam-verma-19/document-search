@@ -19,6 +19,7 @@ class TestWorkerLambdaHandler:
             event = {
                 "Records": [
                     {
+                        "messageId": "message-1",
                         "body": json.dumps(
                             {"bucket": "my-bucket", "key": "user/file.txt"}
                         )
@@ -26,7 +27,7 @@ class TestWorkerLambdaHandler:
                 ]
             }
             result = handler(event, {})
-        assert result["processed"] == 1
+        assert result["batchItemFailures"] == []
         mock_proc.assert_called_once_with("my-bucket", "user/file.txt")
 
     def test_processes_multiple_records(self):
@@ -36,17 +37,45 @@ class TestWorkerLambdaHandler:
 
             event = {
                 "Records": [
-                    {"body": json.dumps({"bucket": "b", "key": "k1"})},
-                    {"body": json.dumps({"bucket": "b", "key": "k2"})},
+                    {
+                        "messageId": "message-1",
+                        "body": json.dumps({"bucket": "b", "key": "k1"}),
+                    },
+                    {
+                        "messageId": "message-2",
+                        "body": json.dumps({"bucket": "b", "key": "k2"}),
+                    },
                 ]
             }
             result = handler(event, {})
-        assert result["processed"] == 2
+        assert result["batchItemFailures"] == []
 
     def test_empty_records_returns_zero(self):
         with patch("backend.app.worker_lambda.process_file_from_s3") as mock_proc:
             from backend.app.worker_lambda import handler
 
             result = handler({"Records": []}, {})
-        assert result["processed"] == 0
+        assert result["batchItemFailures"] == []
         mock_proc.assert_not_called()
+
+    def test_failed_record_is_reported_for_retry(self):
+        with patch("backend.app.worker_lambda.process_file_from_s3") as mock_proc:
+            mock_proc.return_value = {"status": "error", "key": "user/file.txt"}
+            from backend.app.worker_lambda import handler
+
+            result = handler(
+                {
+                    "Records": [
+                        {
+                            "messageId": "failed-message",
+                            "body": json.dumps(
+                                {"bucket": "bucket", "key": "user/file.txt"}
+                            ),
+                        }
+                    ]
+                },
+                {},
+            )
+        assert result["batchItemFailures"] == [
+            {"itemIdentifier": "failed-message"}
+        ]

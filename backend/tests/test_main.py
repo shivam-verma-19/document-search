@@ -39,6 +39,18 @@ class TestMainRoutes:
         monkeypatch.setattr(
             "backend.app.ingest.upload_file_to_s3", lambda f, u: "user/file.txt"
         )
+        monkeypatch.setattr(
+            "backend.app.ingest.create_presigned_upload",
+            lambda u, f, c, s: {
+                "upload_url": "https://storage.example/upload",
+                "fields": {},
+                "key": f"{u}/upload_{f}",
+                "content_type": c,
+            },
+        )
+        monkeypatch.setattr(
+            "backend.app.ingest.validate_uploaded_object", lambda key, user: None
+        )
         monkeypatch.setattr("backend.app.ingest.enqueue_file", lambda k, u=None: None)
         monkeypatch.setattr(
             "backend.app.metrics.get_metrics",
@@ -157,6 +169,52 @@ class TestMainRoutes:
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
+    def test_manual_evaluation_endpoint(self, client, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "backend.app.eval.evaluate_retrieval",
+            lambda query, docs: SimpleNamespace(
+                context_precision=0.8, context_recall=0.7
+            ),
+        )
+        monkeypatch.setattr(
+            "backend.app.eval.evaluate_answer",
+            lambda query, context, answer: SimpleNamespace(
+                faithfulness=0.9, relevance=0.85
+            ),
+        )
+
+        response = client.post(
+            "/eval",
+            json={
+                "query": "What is in this context?",
+                "answer": "It describes a test.",
+                "contexts": ["This is a test context."],
+            },
+            headers={"Authorization": "Bearer fake"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "faithfulness": 0.9,
+            "answer_relevancy": 0.85,
+            "context_precision": 0.8,
+            "context_recall": 0.7,
+        }
+
+    def test_manual_evaluation_rejects_oversized_context(self, client):
+        response = client.post(
+            "/eval",
+            json={
+                "query": "question",
+                "answer": "answer",
+                "contexts": ["x" * 5001],
+            },
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 422
+
     def test_upload_endpoint(self, client):
         resp = client.post(
             "/upload",
@@ -165,6 +223,38 @@ class TestMainRoutes:
         )
         assert resp.status_code == 200
         assert resp.json()["message"] == "queued"
+
+    def test_presigned_upload_requires_authentication(self, client):
+        response = client.post(
+            "/upload/presign",
+            json={
+                "filename": "file.pdf",
+                "content_type": "application/pdf",
+                "size": 20,
+            },
+        )
+        assert response.status_code == 401
+
+    def test_presigned_upload_and_completion(self, client):
+        response = client.post(
+            "/upload/presign",
+            json={
+                "filename": "file.pdf",
+                "content_type": "application/pdf",
+                "size": 20,
+            },
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        assert response.json()["key"].startswith("user-id/")
+
+        completion = client.post(
+            "/upload/complete",
+            json={"key": response.json()["key"]},
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert completion.status_code == 200
+        assert completion.json()["message"] == "queued"
 
     def test_upload_requires_authentication(self, client):
         resp = client.post(

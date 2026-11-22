@@ -18,7 +18,7 @@ The platform allows users to upload documents, retrieve context-aware answers, s
 
 ### 📄 Intelligent Document Ingestion
 
-Supports PDF, DOCX, and TXT files. Pipeline includes automatic parsing, recursive chunking, metadata enrichment, embedding generation via Gemini `gemini-embedding-001`, and vector indexing into AWS S3 Vectors.
+Supports PDF, TXT, and CSV files. Pipeline includes automatic parsing, recursive chunking, metadata enrichment, embedding generation via Gemini `gemini-embedding-001`, and vector indexing into AWS S3 Vectors.
 
 ### 🔍 Hybrid Search Pipeline
 
@@ -41,6 +41,18 @@ Generate full summaries or per-chunk overviews by doc ID or chunk key, with grac
 | BM25 warm cache (DynamoDB) | Avoids S3 paginate on every query |
 | Gemini embeddings | Cost-effective vs. OpenAI |
 | Retrieval-first answering | Fewer LLM tokens |
+
+### Production upload and latency settings
+
+The web app uploads files directly to S3 using short-lived, authenticated presigned
+URLs; the API verifies object ownership, size, and content type before enqueueing
+ingestion. The supported upload formats are PDF, TXT, and CSV.
+
+The Terraform deployment explicitly uses Gemini embeddings with 768 dimensions to
+match the S3 Vectors index. It disables HyDE and automatic per-query LLM evaluation
+to reduce request-time model calls and cost. The authenticated `/eval` POST endpoint
+can still run evaluation on demand. These settings are configurable for deployments
+that prefer retrieval/evaluation quality over lower latency and model usage.
 
 ---
 

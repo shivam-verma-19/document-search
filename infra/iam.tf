@@ -40,9 +40,13 @@ resource "aws_iam_policy" "lambda_policy" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:Query",
-          "dynamodb:DeleteItem"
+          "dynamodb:DeleteItem",
+          "dynamodb:Scan"
         ]
-        Resource = "arn:aws:dynamodb:*:*:table/rag-*"
+        Resource = [
+          "arn:aws:dynamodb:*:*:table/rag-*",
+          "arn:aws:dynamodb:*:*:table/rag-*/index/*",
+        ]
       },
 
       # S3 uploads bucket

@@ -32,10 +32,10 @@ os.environ.setdefault(
 )
 os.environ.setdefault("SECRET_NAME", "rag-secrets")
 os.environ.setdefault("BUCKET_NAME", "rag-pipeline-upload-bucket")
-os.environ.setdefault("ALLOWED_UPLOAD_EXTENSIONS", "pdf,txt,docx,doc")
+os.environ.setdefault("ALLOWED_UPLOAD_EXTENSIONS", "pdf,txt,csv")
 os.environ.setdefault(
     "ALLOWED_UPLOAD_MIMES",
-    "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword",
+    "application/pdf,text/plain,text/csv,application/vnd.ms-excel",
 )
 os.environ.setdefault("FORBIDDEN_UPLOAD_PATTERNS", "")
 os.environ.setdefault("S3_VECTOR_BUCKET_NAME", "rag-vector-bucket")

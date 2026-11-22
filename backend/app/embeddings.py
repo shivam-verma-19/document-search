@@ -11,10 +11,11 @@ import os
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-_BACKEND = os.getenv("EMBEDDING_BACKEND", "local").lower()
+_BACKEND = os.getenv("EMBEDDING_BACKEND", "gemini").lower()
 
 # Gemini config (kept for Gemini backend / backwards-compat)
 EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
+EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "768"))
 
 # ---------------------------------------------------------------------------
 # Module-level singletons
@@ -59,9 +60,8 @@ def _get_local_model():
 def get_embedding(text: str) -> list[float]:
     """Return a dense embedding vector for *text*.
 
-    Uses the local sentence-transformers backend by default (768-dim,
-    BAAI/bge-base-en-v1.5).  Set EMBEDDING_BACKEND=gemini to use the Gemini
-    API (gemini-embedding-001, 1536-dim).
+    Uses Gemini by default and requests the configured vector dimension.
+    Set EMBEDDING_BACKEND=local to use BAAI/bge-base-en-v1.5 (768 dimensions).
 
     Returns an empty list for empty input.
     """
@@ -74,10 +74,15 @@ def get_embedding(text: str) -> list[float]:
 
     if use_gemini:
         try:
+            from google.genai import types
+
             client = _get_client()
             response = client.models.embed_content(
                 model=EMBEDDING_MODEL,
                 contents=text,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=EMBEDDING_DIMENSION
+                ),
             )
             if (
                 response
@@ -87,7 +92,13 @@ def get_embedding(text: str) -> list[float]:
                 and hasattr(response.embeddings[0], "values")
                 and response.embeddings[0].values
             ):
-                return [float(x) for x in response.embeddings[0].values]
+                values = [float(x) for x in response.embeddings[0].values]
+                if len(values) != EMBEDDING_DIMENSION:
+                    raise ValueError(
+                        f"Embedding dimension mismatch: got {len(values)}, "
+                        f"expected {EMBEDDING_DIMENSION}."
+                    )
+                return values
             return []
         except Exception as e:
             raise RuntimeError(f"Embedding failed: {e}") from e

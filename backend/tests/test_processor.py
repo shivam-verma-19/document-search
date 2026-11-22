@@ -10,30 +10,31 @@ Verifies:
 """
 
 import os
-import sys
 from io import BytesIO
 from unittest.mock import MagicMock, call, patch
 
+import pytest
 from botocore.exceptions import ClientError
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-south-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 
-# Stub heavy dependencies before import
+import backend.app.processor as proc
+
 mock_s3v = MagicMock()
 mock_s3v.index_document = MagicMock()
-sys.modules["backend.app.s3_vectors_client"] = mock_s3v
-
 mock_embeddings = MagicMock()
 mock_embeddings.get_embedding = MagicMock(return_value=[0.1] * 768)
-sys.modules["backend.app.embeddings"] = mock_embeddings
-
-with patch("backend.app.secrets.get_secret", return_value="test-key"):
-    import backend.app.processor as proc
 
 mock_append_to_corpus = MagicMock()
-proc.append_to_corpus = mock_append_to_corpus
+
+
+@pytest.fixture(autouse=True)
+def mock_processor_dependencies(monkeypatch):
+    monkeypatch.setattr(proc, "index_document", mock_s3v.index_document)
+    monkeypatch.setattr(proc, "get_embedding", mock_embeddings.get_embedding)
+    monkeypatch.setattr(proc, "append_to_corpus", mock_append_to_corpus)
 
 
 def _mock_dynamodb_table(has_item: bool = False):
@@ -49,7 +50,8 @@ class TestIdempotency:
             assert proc.claim_processing("some/key.pdf") is True
         mock_t.put_item.assert_called_once()
         call_kwargs = mock_t.put_item.call_args.kwargs
-        assert call_kwargs["ConditionExpression"] == "attribute_not_exists(s3_key)"
+        assert "attribute_not_exists(s3_key)" in call_kwargs["ConditionExpression"]
+        assert "processing_started < :stale_before" in call_kwargs["ConditionExpression"]
 
     def test_claim_processing_fails_already_claimed(self):
         from botocore.exceptions import ClientError
@@ -153,6 +155,7 @@ class TestProcessFileFromS3:
         ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
             result = proc.process_file_from_s3("bucket", "user/missing.txt")
         assert result["status"] == "error"
+        mock_t.delete_item.assert_called_once()
 
 
 class TestChunkMetadataPropagation:
@@ -170,11 +173,11 @@ class TestChunkMetadataPropagation:
         with patch.object(
             proc, "get_idempotency_table", return_value=mock_t
         ), patch.object(proc, "get_s3_client", return_value=mock_s3_client):
-            proc.process_file_from_s3("bucket", "user/report.pdf")
+            proc.process_file_from_s3("bucket", "user/report.txt")
 
         # Every index_document call must carry filename in metadata
         for call_kwargs in [c.kwargs for c in mock_s3v.index_document.call_args_list]:
-            assert call_kwargs["metadata"]["filename"] == "report.pdf"
+            assert call_kwargs["metadata"]["filename"] == "report.txt"
 
     def test_chunk_index_increments_across_chunks(self):
         mock_t = MagicMock()

@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from mangum import Mangum
+from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -29,6 +30,7 @@ from backend.app import ingest
 
 from .auth import validate_auth_configuration, verify_token
 from .config import get_settings
+from .document_repository import SearchDocument
 from .errors import ErrorResponse, RAGException, public_error_payload
 from .metrics import get_metrics
 from .rag import ask_question, ask_question_stream, summarize_doc
@@ -43,6 +45,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+class EvaluationRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    answer: str = Field(min_length=1, max_length=4000)
+    contexts: list[str] = Field(min_length=1, max_length=5)
+
+
+class UploadIntent(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=100)
+    size: int = Field(gt=0, le=settings.max_upload_size)
+
+
+class UploadCompletion(BaseModel):
+    key: str = Field(min_length=1, max_length=1024)
 
 
 # ─── Exception handlers ───────────────────────────────────────────────────────
@@ -175,6 +193,35 @@ async def upload(
     key = await asyncio.to_thread(ingest.upload_file_to_s3, file, user_id)
     await asyncio.to_thread(ingest.enqueue_file, key, user_id)
     return {"message": "queued", "key": key}
+
+
+@limiter.limit("5/minute")
+@app.post("/upload/presign")
+async def presign_upload(
+    request: Request,
+    payload: UploadIntent,
+    user=Depends(get_current_user),
+):
+    return await asyncio.to_thread(
+        ingest.create_presigned_upload,
+        get_user_id(user),
+        payload.filename,
+        payload.content_type,
+        payload.size,
+    )
+
+
+@limiter.limit("5/minute")
+@app.post("/upload/complete")
+async def complete_upload(
+    request: Request,
+    payload: UploadCompletion,
+    user=Depends(get_current_user),
+):
+    user_id = get_user_id(user)
+    await asyncio.to_thread(ingest.validate_uploaded_object, payload.key, user_id)
+    await asyncio.to_thread(ingest.enqueue_file, payload.key, user_id)
+    return {"message": "queued", "key": payload.key}
 
 
 @limiter.limit("10/minute")
@@ -337,6 +384,36 @@ def eval_records(
         user_id=get_user_id(user),
     )
     return {"records": records, "count": len(records), "window_hours": window_hours}
+
+
+@limiter.limit("3/minute")
+@app.post("/eval")
+def evaluate_request(
+    request: Request,
+    payload: EvaluationRequest,
+    user=Depends(get_current_user),
+):
+    if any(not context.strip() or len(context) > 5000 for context in payload.contexts):
+        raise HTTPException(
+            status_code=422,
+            detail="Each evaluation context must contain 1 to 5000 characters.",
+        )
+
+    from .eval import evaluate_answer, evaluate_retrieval
+
+    docs = [
+        SearchDocument(page_content=context, doc_id=f"evaluation:{index}")
+        for index, context in enumerate(payload.contexts)
+    ]
+    context = "\n\n".join(payload.contexts)
+    retrieval = evaluate_retrieval(payload.query, docs)
+    answer = evaluate_answer(payload.query, context, payload.answer)
+    return {
+        "faithfulness": answer.faithfulness,
+        "answer_relevancy": answer.relevance,
+        "context_precision": retrieval.context_precision,
+        "context_recall": retrieval.context_recall,
+    }
 
 
 # ─── Lambda handler ───────────────────────────────────────────────────────────

@@ -32,9 +32,6 @@ export default function MetricsPage() {
   const [evalContext, setEvalContext] = useState(
     "AWS Lambda automatically scales serverless compute up to account concurrency limits. AWS Lambda pricing is charged per millisecond of compute duration."
   );
-  const [evalGroundTruth, setEvalGroundTruth] = useState(
-    "AWS Lambda scales automatically and is billed per millisecond of execution and request count."
-  );
   const [evalRunning, setEvalRunning] = useState(false);
   const [evalScores, setEvalScores] = useState<RagasScores | null>(null);
   const [evalError, setEvalError] = useState<string | null>(null);
@@ -51,7 +48,6 @@ export default function MetricsPage() {
         query: evalQuery,
         answer: evalAnswer,
         contexts: [evalContext],
-        ground_truth: evalGroundTruth,
       });
       setEvalScores(res.data);
     } catch (err: any) {
@@ -74,7 +70,7 @@ export default function MetricsPage() {
   const totalQueries = rawMetrics.length;
   const avgLatency =
     totalQueries > 0
-      ? (rawMetrics.reduce((sum, item) => sum + (item.latency || 0), 0) / totalQueries).toFixed(3)
+      ? (rawMetrics.reduce((sum, item) => sum + (item.latency || 0), 0) / totalQueries / 1000).toFixed(3)
       : "0.000";
 
   return (
@@ -244,7 +240,7 @@ export default function MetricsPage() {
                         fontSize: "0.85rem",
                       }}
                     >
-                      {item.latency ? item.latency.toFixed(3) : "0.000"}s
+                      {item.latency ? (item.latency / 1000).toFixed(3) : "0.000"}s
                     </span>
                   </div>
                 </div>
@@ -314,25 +310,6 @@ export default function MetricsPage() {
                   rows={3}
                   value={evalContext}
                   onChange={(e) => setEvalContext(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    backgroundColor: "var(--bg-primary)",
-                    border: "1px solid var(--border-color)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "0.85rem", color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
-                  Ground Truth (Expected Target Answer)
-                </label>
-                <input
-                  type="text"
-                  value={evalGroundTruth}
-                  onChange={(e) => setEvalGroundTruth(e.target.value)}
                   style={{
                     width: "100%",
                     padding: "8px 12px",

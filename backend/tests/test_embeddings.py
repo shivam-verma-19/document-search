@@ -23,8 +23,9 @@ class TestGetEmbedding:
         response.embeddings = [embedding]
         return response
 
-    def test_returns_float_list(self):
+    def test_returns_float_list_and_requests_index_dimension(self, monkeypatch):
         _reset()
+        monkeypatch.setattr(m, "EMBEDDING_DIMENSION", 3)
         mock_client = MagicMock()
         mock_client.models.embed_content.return_value = self._make_response(
             [0.1, 0.2, 0.3]
@@ -32,6 +33,12 @@ class TestGetEmbedding:
         with patch.object(m, "_client", mock_client):
             result = m.get_embedding("hello world")
         assert result == [0.1, 0.2, 0.3]
+        assert (
+            _mock_genai.types.EmbedContentConfig.call_args.kwargs[
+                "output_dimensionality"
+            ]
+            == 3
+        )
 
     def test_empty_text_returns_empty_list(self):
         _reset()

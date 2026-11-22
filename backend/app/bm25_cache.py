@@ -81,8 +81,9 @@ def get_corpus() -> list[dict]:
                 f"BM25 corpus loaded from DynamoDB: {len(corpus)} docs (v{_warm_version})"
             )
             return corpus
-    except ClientError as e:
-        logger.warning(f"BM25 corpus cache read failed: {e}")
+    except ClientError:
+        logger.error("BM25 corpus cache read failed", exc_info=True)
+        raise
 
     _warm_corpus = []
     _warm_loaded_at = now
@@ -108,8 +109,9 @@ def set_corpus(texts: list[str | dict]) -> None:
         _warm_loaded_at = time.time()
         _warm_version = new_version
         logger.info(f"BM25 corpus cached: {len(texts)} docs")
-    except ClientError as e:
-        logger.warning(f"BM25 corpus cache write failed: {e}")
+    except ClientError:
+        logger.error("BM25 corpus cache write failed", exc_info=True)
+        raise
 
 
 def append_to_corpus(new_texts: list[str | dict]) -> None:
@@ -166,6 +168,8 @@ def append_to_corpus(new_texts: list[str | dict]) -> None:
                 time.sleep(0.1 * (2**attempt))
             else:
                 logger.error(f"BM25 corpus cache write failed: {e}")
-                return
+                raise
 
-    logger.error(f"BM25 append failed after {_MAX_RETRIES} retries (version conflict)")
+    raise RuntimeError(
+        f"BM25 append failed after {_MAX_RETRIES} version-conflict retries"
+    )

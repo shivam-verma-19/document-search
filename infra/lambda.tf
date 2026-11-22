@@ -13,16 +13,27 @@ resource "aws_lambda_function" "rag_api" {
 
   environment {
     variables = {
-      APP_ENV         = "production"
-      QUEUE_URL       = aws_sqs_queue.rag_queue.id
-      SECRET_NAME     = aws_secretsmanager_secret.rag_secrets.name
-      BUCKET_NAME     = aws_s3_bucket.uploads.bucket
-      ENABLE_RERANKER = "false"
+      APP_ENV                    = "production"
+      QUEUE_URL                  = aws_sqs_queue.rag_queue.id
+      SECRET_NAME                = aws_secretsmanager_secret.rag_secrets.name
+      BUCKET_NAME                = aws_s3_bucket.uploads.bucket
+      ENABLE_RERANKER            = "false"
+      EMBEDDING_BACKEND          = "gemini"
+      EMBEDDING_DIMENSION        = "768"
+      GEMINI_EMBEDDING_MODEL     = "models/gemini-embedding-001"
+      HYDE_ENABLED               = "false"
+      ENABLE_BACKGROUND_EVAL     = "false"
+      ALLOWED_UPLOAD_EXTENSIONS  = "pdf,txt,csv"
+      ALLOWED_UPLOAD_MIMES       = "application/pdf,text/plain,text/csv,application/vnd.ms-excel"
+      MAX_UPLOAD_SIZE            = "10485760"
+      DYNAMODB_BM25_TABLE        = aws_dynamodb_table.bm25_cache.name
+      DYNAMODB_METRICS_TABLE     = aws_dynamodb_table.metrics.name
+      DYNAMODB_EVAL_TABLE        = aws_dynamodb_table.eval.name
+      DYNAMODB_SESSIONS_TABLE    = aws_dynamodb_table.sessions.name
 
       # S3 Vectors — must match resource names in s3.tf
       S3_VECTOR_BUCKET_NAME = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
       S3_VECTOR_INDEX_NAME  = aws_s3vectors_index.rag_doc_index.index_name
-      EMBEDDING_DIMENSION   = "768"
 
       # Gemini model
       GEMINI_MODEL = "gemini-2.5-flash"
@@ -58,12 +69,16 @@ resource "aws_lambda_function" "rag_ingest_worker" {
 
   environment {
     variables = {
-      SECRET_NAME  = aws_secretsmanager_secret.rag_secrets.name
-      BUCKET_NAME  = aws_s3_bucket.uploads.bucket
+      SECRET_NAME                = aws_secretsmanager_secret.rag_secrets.name
+      BUCKET_NAME                = aws_s3_bucket.uploads.bucket
+      EMBEDDING_BACKEND          = "gemini"
+      EMBEDDING_DIMENSION        = "768"
+      GEMINI_EMBEDDING_MODEL     = "models/gemini-embedding-001"
+      DYNAMODB_BM25_TABLE        = aws_dynamodb_table.bm25_cache.name
+      DYNAMODB_IDEMPOTENCY_TABLE = aws_dynamodb_table.processed_keys.name
 
-      S3_VECTOR_BUCKET_NAME = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
-      S3_VECTOR_INDEX_NAME  = aws_s3vectors_index.rag_doc_index.index_name
-      EMBEDDING_DIMENSION   = "768"
+      S3_VECTOR_BUCKET_NAME     = aws_s3vectors_vector_bucket.rag_vectors.vector_bucket_name
+      S3_VECTOR_INDEX_NAME      = aws_s3vectors_index.rag_doc_index.index_name
     }
   }
 

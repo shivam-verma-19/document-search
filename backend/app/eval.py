@@ -287,6 +287,7 @@ def log_eval(
     record = EvalRecord(query=query, retrieval=retrieval, answer=answer)
     item = {
         "id": record.id,
+        "eval_id": record.id,
         "query": record.query[:500],
         "timestamp": record.timestamp,
         "ttl": record.ttl,
@@ -328,25 +329,30 @@ def get_eval_records(
     user_id: str | None = None,
 ) -> list[dict]:
     """Return eval records from the last window_seconds for dashboard reporting."""
-    from boto3.dynamodb.conditions import Attr
+    from boto3.dynamodb.conditions import Attr, Key
 
     since = int(time.time()) - window_seconds
     items: list[dict] = []
-    filter_expression = Attr("timestamp").gte(since)
-    if user_id:
-        filter_expression = filter_expression & Attr("user_id").eq(user_id)
 
     try:
-        response = _get_table().scan(FilterExpression=filter_expression)
-        items.extend(response.get("Items", []))
-        last_key = response.get("LastEvaluatedKey")
-        while last_key:
-            response = _get_table().scan(
-                FilterExpression=filter_expression,
-                ExclusiveStartKey=last_key,
-            )
+        last_key = None
+        while True:
+            if user_id:
+                response = _get_table().query(
+                    IndexName="user-timestamp-index",
+                    KeyConditionExpression=Key("user_id").eq(user_id)
+                    & Key("timestamp").gte(since),
+                    **({"ExclusiveStartKey": last_key} if last_key else {}),
+                )
+            else:
+                response = _get_table().scan(
+                    FilterExpression=Attr("timestamp").gte(since),
+                    **({"ExclusiveStartKey": last_key} if last_key else {}),
+                )
             items.extend(response.get("Items", []))
             last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
     except Exception as e:
         logger.warning("Eval records fetch failed: %s", e)
     return items

@@ -20,7 +20,11 @@ from .s3_vectors_client import index_document
 
 def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
     """Embed multiple texts concurrently using ThreadPoolExecutor."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    if not texts:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(8, len(texts))
+    ) as executor:
         futures = [executor.submit(get_embedding, text) for text in texts]
         return [f.result() for f in futures]
 
@@ -31,6 +35,7 @@ settings = get_settings()
 _s3_client = None
 _dynamodb_resource = None
 _IDEMPOTENCY_TABLE = os.getenv("DYNAMODB_IDEMPOTENCY_TABLE", "rag-processed-keys")
+_STALE_PROCESSING_SECONDS = int(os.getenv("IDEMPOTENCY_LEASE_SECONDS", "600"))
 
 
 def get_s3_client():
@@ -65,24 +70,48 @@ def already_processed(key: str) -> bool:
 
 
 def claim_processing(key: str) -> bool:
+    now = int(time.time())
     try:
         table = get_idempotency_table()
         table.put_item(
             Item={
                 "s3_key": key,
                 "status": "processing",
-                "processing_started": int(time.time()),
-                "ttl": int(time.time()) + 7 * 24 * 3600,
+                "processing_started": now,
+                "ttl": now + 7 * 24 * 3600,
             },
-            ConditionExpression="attribute_not_exists(s3_key)",
+            ConditionExpression=(
+                "attribute_not_exists(s3_key) OR "
+                "(#status <> :processed AND "
+                "(attribute_not_exists(processing_started) OR "
+                "processing_started < :stale_before))"
+            ),
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={
+                ":processed": "processed",
+                ":stale_before": now - _STALE_PROCESSING_SECONDS,
+            },
         )
         return True
     except ClientError as e:
         error_code = e.response.get("Error", {}).get("Code")
         if error_code == "ConditionalCheckFailedException":
             return False
-        logger.warning(f"Failed to claim idempotency row for {key}: {e}")
-        return False
+        logger.error("Failed to claim idempotency row for %s", key, exc_info=True)
+        raise
+
+
+def release_processing(key: str) -> None:
+    try:
+        get_idempotency_table().delete_item(
+            Key={"s3_key": key},
+            ConditionExpression="#status = :processing",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={":processing": "processing"},
+        )
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            logger.error("Failed to release idempotency claim for %s", key, exc_info=True)
 
 
 def mark_processed(key: str) -> None:
@@ -98,8 +127,9 @@ def mark_processed(key: str) -> None:
                 ":ttl": int(time.time()) + 7 * 24 * 3600,
             },
         )
-    except ClientError as e:
-        logger.warning(f"Failed to mark key as processed: {e}")
+    except ClientError:
+        logger.error("Failed to mark key as processed: %s", key, exc_info=True)
+        raise
 
 
 # ─── Text extraction ──────────────────────────────────────────────────────────
@@ -131,7 +161,7 @@ def _download_from_s3(bucket: str, key: str) -> bytes:
 def _chunk_and_embed(text: str, key: str) -> tuple[list[Document], str, list[dict]]:
     """Return (chunks, doc_base_id, chunk_texts)."""
     filename = key.split("/")[-1]
-    doc_base_id = str(uuid.uuid4())
+    doc_base_id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
     user_id = key.split("/")[0] if "/" in key else "anonymous"
     file_type = filename.split(".")[-1].lower() if "." in filename else "unknown"
     upload_date = datetime.now(timezone.utc).isoformat()
@@ -201,24 +231,26 @@ def process_file_from_s3(bucket: str, key: str) -> dict:
 
     try:
         content = _download_from_s3(bucket, key)
+        text = extract_text_from_file(content, key)
+        if not text.strip():
+            logger.warning("No extractable text in %s", key)
+            mark_processed(key)
+            return {"status": "empty", "key": key}
+
+        chunks, doc_base_id, new_texts = _chunk_and_embed(text, key)
+        append_to_corpus(new_texts)
+        mark_processed(key)
+        logger.info("Processed %s: %s chunks, doc_base_id=%s", key, len(chunks), doc_base_id)
+        return {
+            "status": "processed",
+            "chunks": len(chunks),
+            "key": key,
+            "doc_id": doc_base_id,
+        }
     except ClientError as e:
-        logger.error(f"S3 download failed for {key}: {e}")
+        release_processing(key)
+        logger.error("S3 processing failed for %s: %s", key, e)
         return {"status": "error", "key": key, "reason": str(e)}
-
-    text = extract_text_from_file(content, key)
-    if not text.strip():
-        logger.warning(f"No extractable text in {key}")
-        return {"status": "empty", "key": key}
-
-    chunks, doc_base_id, new_texts = _chunk_and_embed(text, key)
-
-    append_to_corpus(new_texts)
-
-    mark_processed(key)
-    logger.info(f"Processed {key}: {len(chunks)} chunks, doc_base_id={doc_base_id}")
-    return {
-        "status": "processed",
-        "chunks": len(chunks),
-        "key": key,
-        "doc_id": doc_base_id,
-    }
+    except Exception:
+        release_processing(key)
+        raise

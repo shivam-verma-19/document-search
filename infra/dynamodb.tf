@@ -96,9 +96,26 @@ resource "aws_dynamodb_table" "eval" {
     type = "S"
   }
 
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "timestamp"
+    type = "N"
+  }
+
   ttl {
     attribute_name = "ttl"
     enabled        = true
+  }
+
+  global_secondary_index {
+    name            = "user-timestamp-index"
+    hash_key        = "user_id"
+    range_key       = "timestamp"
+    projection_type = "ALL"
   }
 
   point_in_time_recovery {
@@ -108,5 +125,74 @@ resource "aws_dynamodb_table" "eval" {
   tags = {
     Name    = "${var.project_name}-eval"
     Purpose = "evaluation"
+  }
+}
+
+resource "aws_dynamodb_table" "bm25_cache" {
+  name         = "rag-bm25-cache"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  tags = {
+    Name    = "${var.project_name}-bm25-cache"
+    Purpose = "search"
+  }
+}
+
+resource "aws_dynamodb_table" "sessions" {
+  name         = "rag-sessions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "session_id"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "session_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  tags = {
+    Name    = "${var.project_name}-sessions"
+    Purpose = "conversation-memory"
+  }
+}
+
+resource "aws_dynamodb_table" "processed_keys" {
+  name         = "rag-processed-keys"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "s3_key"
+
+  attribute {
+    name = "s3_key"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  tags = {
+    Name    = "${var.project_name}-processed-keys"
+    Purpose = "ingestion-idempotency"
   }
 }

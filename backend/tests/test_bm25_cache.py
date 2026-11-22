@@ -49,15 +49,15 @@ class TestGetCorpus:
         assert result == []
         assert m._warm_corpus == []
 
-    def test_dynamo_error_returns_empty(self):
+    def test_dynamo_error_is_reported(self):
         _reset()
         mock_table = MagicMock()
         mock_table.get_item.side_effect = ClientError(
             {"Error": {"Code": "ResourceNotFoundException", "Message": "x"}}, "GetItem"
         )
         with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
-            result = m.get_corpus()
-        assert result == []
+            with pytest.raises(ClientError):
+                m.get_corpus()
 
     def test_warm_ttl_expiry_refetches(self):
         _reset()
@@ -85,7 +85,7 @@ class TestSetCorpus:
         assert m._warm_corpus == [_document("x"), _document("y")]
         assert m._warm_version == 3
 
-    def test_dynamo_error_is_swallowed(self):
+    def test_dynamo_error_is_reported(self):
         _reset()
         mock_table = MagicMock()
         mock_table.put_item.side_effect = ClientError(
@@ -98,7 +98,8 @@ class TestSetCorpus:
             "PutItem",
         )
         with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
-            m.set_corpus(["z"])
+            with pytest.raises(ClientError):
+                m.set_corpus(["z"])
 
 
 class TestAppendToCorpus:
@@ -165,7 +166,8 @@ class TestAppendToCorpus:
             "PutItem",
         )
         with patch("backend.app.bm25_cache._table", side_effect=lambda: mock_table):
-            m.append_to_corpus(["new"])
+            with pytest.raises(ClientError):
+                m.append_to_corpus(["new"])
 
 
 class TestInvalidateWarmCache:

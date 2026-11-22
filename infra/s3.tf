@@ -21,6 +21,18 @@ resource "aws_s3_bucket_public_access_block" "uploads_block" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_cors_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  cors_rule {
+    allowed_headers = ["Content-Type"]
+    allowed_methods = ["POST"]
+    allowed_origins = [trimsuffix(var.frontend_origin, "/")]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 300
+  }
+}
+
 resource "aws_s3_bucket_policy" "uploads_tls" {
   bucket = aws_s3_bucket.uploads.id
   policy = jsonencode({

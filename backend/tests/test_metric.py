@@ -53,6 +53,20 @@ class TestMetrics:
             result = metrics.get_metrics(window_seconds=3600)
         assert isinstance(result, list)
 
+    def test_user_metrics_use_time_index(self):
+        import backend.app.metrics as metrics
+
+        with patch.object(metrics, "_get_table") as mock_get_table:
+            mock_table = MagicMock()
+            mock_table.query.return_value = {"Items": [], "LastEvaluatedKey": None}
+            mock_get_table.return_value = mock_table
+            result = metrics.get_metrics(window_seconds=3600, user_id="user-1")
+
+        assert result == []
+        mock_table.query.assert_called_once()
+        assert mock_table.query.call_args.kwargs["IndexName"] == "user-timestamp-index"
+        mock_table.scan.assert_not_called()
+
     def test_get_metrics_paginates(self):
         import backend.app.metrics as metrics
 
